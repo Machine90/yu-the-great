@@ -3,3 +3,4 @@ Cargo.lock
 *.log
 /assets
 /log
+# crates/protos/src/*_proto.rs
