@@ -15,8 +15,7 @@ use consensus::{
 };
 
 use crate::{
-    mailbox::topo::PeerID, protos::raft_log_proto::Entry,
-    storage::group_storage::GroupStorage, RaftResult,
+    mailbox::topo::PeerID, protos::raft_log_proto::Entry, RaftResult,
 };
 
 use self::{listener::{Listeners, RaftContext}, read_index_ctx::ReadContext};
@@ -89,7 +88,6 @@ pub trait RaftCoprocessor: Sync {
         &self,
         ctx: &RaftContext,
         cmds: &Vec<Vec<u8>>,
-        store: Option<Arc<dyn GroupStorage>>,
         listeners: Arc<Listeners>,
     );
 

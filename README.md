@@ -1,6 +1,6 @@
-<!-- <img src="./document/imgs/logo.png" align="left" width="200"/> -->
+<img src="./document/imgs/logo.png" width="200"/>
 
-## [Documentation](document/) | 
+## [Architecture](document/design.md) |  [Multi Raft](document/multi/multi_raft.md) | [Configuration](document/configuration.md)
 
 **Yu The Great** is an open-source distributed consensus library which implemented by Rust based on the raft algorithm, can help developers to write some distributed products easily, for example distributed key-value store, distributed message queue and some tools like distributed lock that can be embed in your project.
 
@@ -12,20 +12,20 @@ About name, Yu the great, also known as  Da yu, hero of China in ancient times w
 
 ### Concepts
 
-Let's introduce some important concepts before using this library:
+Let's make clear some important concepts before using this library:
 
 * Node: the Node we mentioned here could be a server, a node can maintain more than 1 group.
-* Group: a raft group, includes some voters (consists of different nodes), each group has it's own id, key range and voters.
-* Peer: a member (aka voter) of group on this node, perform as a `RaftNode`
+* Group: a raft group, includes some voters (consists of different nodes), each group has it's own id, key range and voters. 
+* Peer: one replica of a group, installed on the node.
 * Propose: "write" behavior of the raft group, content of propose is defined to binary type, which can be designed to anything, for example "binlog".
-* ReadIndex: "read" behavior of the raft group, 
+* ReadIndex: "read" behavior of the raft group. Yu support client read proposal data from each group, and guarantee this data has been committed.
 
 ### Dependency
 
 We haven't deploy it to any repo like crate.io (in plan) now, so if you have interesting, import it from git.
 
 ```
-yu-the-greate = { git = "https://github.com/xxx.git", default-features = false }
+yu-the-greate = { git = "https://github.com/Machine90/yu-the-great.git", default-features = false }
 ```
 
 ### Features
@@ -52,19 +52,19 @@ yu-the-greate = { git = "https://github.com/xxx.git", default-features = false }
 * **single**: we provide a single raft group solution in this feature, include:
 
   * A schedule used to tick single raft group period.
-  *  Builder for single raft group, help to create Node quickly.
+  *  A `Builder` for single raft group, help to create Node quickly.
 
-* **multi**: We plan to support "Multi-Raft" on this library, but still in developing now.
+* **multi**: This feature is still developing now. In this feature, a node can manage multiple groups, and each group has it's own "partition", all log entry's binary key in this partition's will be routed to this group.
 
-  * NodeManager: 
-  * Coordinator: 
-  * BatchTicker: 
+  * NodeManager: Manage all groups of this node, help to find the group by id.
+  * Coordinator: The coordinator of this node is used to help to do some balance job for example, once a group growth too large, then we may consider split this group, at that time, developer can use coordinator to propose the `Split` command to each voter of this group to split at local, coordinator support these operations: Split, Transfer, Merge.
+  * BatchTicker: This schedule used to tick all groups on this node period, and send heartbeat in batch.
 
 * **rpc**: RPC implementation of mailbox, powered by Tarpc
 
 ### Code samples
 
-#### "single" & "rpc"
+#### HelloWorld
 
 ```rust
 // features = ["single", "rpc"]
@@ -166,11 +166,6 @@ fn main() {
     }
 }
 ```
-
-#### "multi" & "rpc"
-
-TODO
-
 #### More Example
 
 TODO (link to examples)

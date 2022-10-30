@@ -99,7 +99,7 @@ impl Peer {
         cmd: Vec<u8>,
         timeout_dur: Duration,
     ) -> RaftResult<Proposal> {
-        let mut raft = self.raft_group.wl_raft().await;
+        let mut raft = self.wl_raft().await;
         raft.propose_cmd(cmd)?;
         let ready = raft.get_if_ready()?;
         self._advance_propose_ready(raft, ready, timeout_dur).await

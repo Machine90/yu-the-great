@@ -1,13 +1,14 @@
 use super::model::check::CheckGroup;
 use common::protocol::GroupID;
 use std::{collections::VecDeque, io, sync::Arc, time::Duration};
-use torrent::partitions::key::Key;
+use torrent::partitions::{key::Key, partition::Partition};
 
 pub type NodeBalancer = Arc<dyn BalanceHelper + Send + Sync + 'static>;
 
 /// Balance configuration.
 #[derive(Debug, Clone, Copy)]
 pub struct Config {
+    pub enable_schedule: bool,
     pub check_interval_millis: u64,
     // TODO: more split policy
     pub check_policy: CheckPolicy,
@@ -16,6 +17,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            enable_schedule: true,
             check_interval_millis: 30000,
             check_policy: CheckPolicy::Percentage {
                 min_group_percent: 0.00001,
@@ -35,6 +37,25 @@ impl Config {
     }
 }
 
+pub struct SplitPartition {
+    pub new_group: GroupID,
+    pub ori_partition: Partition<GroupID>,
+    pub split_key: Option<Vec<u8>>,
+}
+
+impl SplitPartition {
+
+    #[inline]
+    pub fn set_split_key<K: AsRef<[u8]>>(&mut self, key: K) {
+        self.split_key = Some(key.as_ref().to_vec());
+    }
+
+    #[inline]
+    pub fn take_key(&mut self) -> Option<Vec<u8>> {
+        self.split_key.take()
+    }
+}
+
 /// Balance helper of current node, used to collect usages of each group
 /// on this node, then help to find split_key of each group which need split.
 #[allow(unused)]
@@ -48,7 +69,7 @@ pub trait BalanceHelper {
 
     /// Get the split key of given group, this often called
     /// when after `check_split` is true.
-    fn split_keys(&self, should_splits: &mut Vec<CheckGroup>);
+    fn split_keys(&self, should_splits: &mut Vec<SplitPartition>);
 
     /// Notify to clear key-value in ranges of this node.
     /// ### Params

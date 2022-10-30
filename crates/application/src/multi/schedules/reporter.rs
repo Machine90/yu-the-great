@@ -27,7 +27,7 @@ impl<S: GroupStorage> NodeReporter<S> {
 }
 
 #[crate::async_trait]
-impl<S: GroupStorage> ScheduleAsync for NodeReporter<S> {
+impl<S: GroupStorage + Clone> ScheduleAsync for NodeReporter<S> {
     #[inline]
     fn token(&self) -> &'static str {
         "NodeReporter"
@@ -49,7 +49,7 @@ impl<S: GroupStorage> ScheduleAsync for NodeReporter<S> {
     #[inline]
     async fn fire(&self, _: u64) {
         if let Ok(busy) = self.mutex.try_lock() {
-            self.coordinator.report().await;
+            self.coordinator.report(true).await;
             drop(busy);
         }
     }

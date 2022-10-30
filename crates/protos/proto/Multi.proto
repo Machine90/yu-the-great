@@ -3,6 +3,7 @@ package MultiProto;
 
 import "RaftGroup.proto";
 import "RaftPayload.proto";
+import "RaftLog.proto";
 
 message GroupMessage {
     uint32 group = 1;
@@ -16,22 +17,46 @@ message BatchMessages {
     repeated GroupMessage messages = 2;
 }
 
-enum Assignment {
-    Split = 0;
-    Create = 1;
-    Compact = 2;
-    Transfer = 3;
+message GroupInfo {
+    uint32 id = 1;
+    bytes from_key = 2;
+    bytes to_key = 3;
+    RaftLogProto.ConfState confstate = 4;
 }
 
-message BalanceCmd {
-    Assignment assignment = 1;
-    repeated RaftGroupProto.GroupProto groups = 2;
-    repeated RaftGroupProto.EndpointProto padded_endpoints = 3;
-    uint32 consumer = 4;
+message MultiGroup {
+    repeated GroupInfo groups = 1;
+    repeated RaftGroupProto.EndpointProto endpoints = 2;
 }
 
-message BatchBalance {
-    uint64 id = 1;
-    repeated BalanceCmd cmds = 2;
-    bytes context = 3;
+// Batch group assignments which have same voters.
+// For example we split groups [1,2,5,7], all these groups
+// have same voters [n1, n2, n3], then we just propose  
+// assignments via peer (group 1, node 1), and let node 1
+// to handle assignments of groups [1, 2, 5, 7].
+message BatchAssignment {
+    RaftLogProto.ConfState confstate = 1;
+    Assignments assignments = 2;
+}
+
+message Assignments {
+    repeated Split should_split = 1;
+    repeated Merge should_merge = 2;
+    repeated Transfer should_transfer = 3;
+}
+
+message Split {
+    uint32 src_group = 1;
+    uint32 dest_group = 2;
+    bytes config_split_key = 3;
+}
+
+message Merge {
+    repeated uint32 src_groups = 1;
+    uint32 dest_group = 2;
+}
+
+message Transfer {
+    uint32 group = 1;
+    RaftGroupProto.EndpointProto transfee = 2;
 }

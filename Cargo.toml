@@ -12,7 +12,7 @@ categories = ["raft", "consensus", "distributed"]
 members = ["crates/*", "example"]
 
 [features]
-default = ["application", "multi", "single", "rpc"]
+default = ["application"]
 # Multi-raft or Single
 multi = ["application/multi", "components_multi"]
 single = ["application/single", "components_basic"]

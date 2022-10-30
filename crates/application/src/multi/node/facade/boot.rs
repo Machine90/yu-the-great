@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::peer::facade::{
     local::LocalPeer,
-    mailbox::{GroupManage, MailboxService},
+    mailbox::{GroupManage, MailboxService}, AbstractPeer,
 };
 use crate::{
     multi::node::{manager::NodeManager, Node},
@@ -13,7 +13,7 @@ use crate::{
     ConsensusError, GroupID, RaftResult,
 };
 use common::protos::raft_group_proto::GroupProto;
-use components::mailbox::api::NodeMailbox;
+use components::{mailbox::api::NodeMailbox, utils::endpoint_change::ChangeSet};
 use components::torrent::runtime;
 
 impl<S: GroupStorage + Clone> Node<S> {
@@ -80,7 +80,16 @@ impl<S: GroupStorage + Clone> GroupManage for MultiMailbox<S> {
     fn create_group(&self, group_info: GroupProto) {
         let nm = self.nm.clone();
         runtime::spawn(async move {
+            let group_id = group_info.id;
+            // step 1: assign new group on this new
             let _ = nm.try_assign_group(group_info).await;
+            if let Ok(peer) = nm.find_peer(group_id) {
+                // step 2: remove outgoing voters by requsting leave joint.
+                let _ = peer.propose_conf_changes_async(
+                    ChangeSet::leave_joint().into(), 
+                    false
+                ).await;
+            }
         });
     }
 }

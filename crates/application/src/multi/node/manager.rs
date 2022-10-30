@@ -196,13 +196,16 @@ impl<S: GroupStorage + Clone> NodeManager<S> {
         };
         let mut total_succeed = 0;
 
+        let minimal_wait = std::cmp::max(groups * 3, 3000) as u64;
+        let wait_dur = Duration::from_millis(minimal_wait);
+
         while retries > 0 {
             let succeed = self.preheat_once(total_succeed, expected).await;
             total_succeed += succeed;
             if expected <= total_succeed {
                 return (true, total_succeed);
             }
-            crate::tokio::time::sleep(Duration::from_millis((groups * 2) as u64)).await;
+            crate::tokio::time::sleep(wait_dur).await;
             retries -= 1;
         }
         (false, total_succeed)

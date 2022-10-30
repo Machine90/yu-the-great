@@ -13,7 +13,7 @@ use components::{
         raft_group_proto::{EndpointProto, GroupProto},
         raft_log_proto::ConfState,
     },
-    torrent::partitions::{index::sparse::Sparse, partition::Partition},
+    torrent::partitions::{index::sparse::Sparse, partition::Partition}, vendor::prelude::local_dns_lookup,
 };
 
 #[allow(unused)]
@@ -75,20 +75,27 @@ pub fn mock_node() -> Vec<GroupProto> {
         endpoints: nodes("1-127.0.0.1:20071,2-127.0.0.1:20072,3-127.0.0.1:20073"),
         ..Default::default()
     };
-
-    // let partitions = vec!["", "aa", "ee", "kk", "mm", "oo", "rr", "uu", "xx", "zz", ""];
-    // _mock_specific_groups(template, partitions)
-    _mock_rang_groups(template, 1..501)
+    _mock_rang_groups(template, 1..8)
 }
 
-pub fn build_node(id: u64, addr: &str) -> Node<PeerMemStore> {
+pub fn build_node(id: u64, addr: &str, empty: bool) -> Node<PeerMemStore> {
     let mut config = NodeConfig::default();
     config.id = id;
-    config.preheat_groups_percentage = 0.8;
+    config.preheat_groups_percentage = 0.7;
     config.preheat_groups_retries = 8;
+    config.preheat_allow_failure = true;
+    let socket = local_dns_lookup(addr).unwrap();
+    config.host = socket.ip().to_string();
+    config.mailbox_port = socket.port();
+    
     let nb = Builder::new(config);
 
-    let store = MultiMemStore::restore_from(mock_node());
+    let store = if !empty { 
+        MultiMemStore::restore_from(mock_node())
+    } else {
+        MultiMemStore::new()
+    };
+
     let kv_db = Arc::new(HashEngine::new());
     let nb = nb
         .with_raftlog_store(store)

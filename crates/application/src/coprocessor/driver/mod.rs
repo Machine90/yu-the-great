@@ -1,7 +1,7 @@
 use crate::peer::config::NodeConfig;
 use crate::protos::raft_log_proto::Entry;
 use crate::tokio::time::timeout;
-use crate::{storage::group_storage::GroupStorage, torrent::runtime, PeerID, RaftMsg, RaftResult};
+use crate::{torrent::runtime, PeerID, RaftMsg, RaftResult};
 use common::protocol::{GroupID, NodeID};
 use common::protos::raft_log_proto::Snapshot;
 use components::mailbox::{PostOffice, RaftEndpoint};
@@ -111,19 +111,19 @@ impl CoprocessorDriver {
     ///                Actions for Follower & Leader
     ///////////////////////////////////////////////////////////////
 
-    pub fn handle_group_conf_change(&self, ctx: RaftContext, changes: ChangeSet) {
+    pub fn handle_group_conf_change(&self, ctx: RaftContext, changes: ChangeSet) -> HashSet<PeerID> {
         let RaftContext { group_id, .. } = &ctx;
         let group = *group_id;
-        let topo = self.topo.get_topo();
+        let topo = &self.topo;
         let mut incoming = HashSet::with_capacity(changes.len());
-        for change in changes.iter() {
-            match change.get_changed() {
+        for change in changes.take_list() {
+            match change.take_changed() {
                 Changed::AddNode(node) => {
                     let node_id = node.id;
                     if topo.contained_group_node(&group, &node_id) {
                         continue;
                     }
-                    topo.add_node(group, node.clone());
+                    topo.add_node(group, node);
                     incoming.insert((group, node_id));
                 }
                 Changed::RemoveNode(node_id) => {
@@ -132,10 +132,11 @@ impl CoprocessorDriver {
                 }
             }
         }
-        let maybe_existed = self.establish_connections(incoming);
+        let maybe_existed = self.establish_connections(incoming.clone());
         if !maybe_existed.is_empty() {
-            crate::warn!("these peers maybe existed: {:?}", maybe_existed);
+            crate::debug!("these peers maybe existed: {:?}", maybe_existed);
         }
+        incoming
     }
 
     pub async fn handle_soft_state_change(
@@ -196,12 +197,10 @@ impl CoprocessorDriver {
         &self,
         ctx: RaftContext,
         cmds: Vec<Vec<u8>>,
-        store: Option<Arc<dyn GroupStorage>>,
     ) {
         // handle and dispatch commands
         self.coprocessor
-            .handle_commit_cmds(&ctx, &cmds, store.clone(), self.listeners.clone())
-            .await;
+            .handle_commit_cmds(&ctx, &cmds, self.listeners.clone()).await;
     }
 
     /// When leader receive raw read_index ctx directly or from

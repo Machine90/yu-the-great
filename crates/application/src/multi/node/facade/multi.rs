@@ -15,7 +15,7 @@ use components::{
     mailbox::multi::{
         api::MultiRaftApi,
         model::{
-            indexer::{Unique, WriteBatch},
+            indexer::{Unique},
             Located, Location,
         },
     },
@@ -53,10 +53,6 @@ impl<S: GroupStorage> MultiRaftApi for Node<S> {
                 ),
             ))),
         }
-    }
-
-    async fn propose_batch<E: Unique + Send>(&self, _write_batch: WriteBatch<E>) {
-        todo!()
     }
 
     async fn read_index<I: Unique + Send>(&self, read_context: I) -> Yusult<Located<ReadState>> {

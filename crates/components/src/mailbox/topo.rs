@@ -1,6 +1,6 @@
 use std::{collections::HashSet, convert::TryInto, ops::Deref, str::FromStr, sync::Arc, time::Duration};
 
-use common::protos::{prelude::raft_group_ext::valid_str_list, raft_group_proto::GroupProto};
+use common::protos::{prelude::raft_group_ext::valid_str_list, raft_group_proto::GroupProto, multi_proto::MultiGroup};
 use torrent::{
     network::Network,
     topology::{node::Node, topo::Topology},
@@ -115,6 +115,34 @@ impl Topo {
         Self {
             conf: Arc::new(TopoConf::default()),
             network: Arc::new(cluster),
+        }
+    }
+
+    /// Filling the groups with endpoints.
+    #[cfg(feature = "multi")]
+    pub fn fill_groups(&self, groups: &mut MultiGroup) {
+        let topo = self.get_topo();
+        let mut nodes = HashSet::new();
+        for group in groups.groups.iter_mut() {
+            if let Some(voters) = group.confstate.as_ref().map(|cs| &cs.voters) {
+                for v in voters {
+                    nodes.insert(*v);
+                }
+            } else {
+                topo.copy_group_node_ids(&group.id)
+                    .map(|ns| {
+                        nodes.extend(&ns);
+                        group.confstate = Some(ns.into());
+                    });
+            }
+        }
+        if nodes.is_empty() {
+            return;
+        }
+        for node in nodes {
+            if let Some(node) = topo.get_node(&node) {
+                groups.endpoints.push(node.as_ref().into());
+            }
         }
     }
 }

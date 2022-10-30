@@ -1,5 +1,8 @@
+use super::model::{
+    indexer::{Unique, WriteBatch},
+    Located,
+};
 use common::{errors::application::Yusult, protocol::read_state::ReadState};
-use super::model::{indexer::{Unique, WriteBatch}, Located};
 
 /// The multi-raft trait require to implement route and
 /// read/write actions of specific "oplog" (which implement
@@ -12,7 +15,8 @@ pub trait MultiRaftApi {
     /// The committed index will be return if success.
     async fn propose<L: Unique + Send>(&self, oplog: L) -> Yusult<Located<u64>>;
 
-    async fn propose_batch<E: Unique + Send>(&self, _write_batch: WriteBatch<E>) {
+    #[allow(unused)]
+    async fn propose_batch<E: Unique + Send>(&self, write_batch: WriteBatch<E>) {
         unimplemented!("not support function propose_batch")
     }
 

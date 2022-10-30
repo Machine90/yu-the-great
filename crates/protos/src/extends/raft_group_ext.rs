@@ -239,23 +239,26 @@ impl Estimate {
 impl GroupProto {
 
     #[inline]
-    pub fn update_estimate(&mut self, estimate: Estimate) {
+    pub fn update_estimate(&mut self, estimate: Estimate) -> &mut Self {
         self.estimate = Some(estimate);
+        self
     }
 
     #[inline]
-    pub fn set_key_range<K: AsRef<[u8]>>(&mut self, range: Range<K>) {
+    pub fn set_key_range<K: AsRef<[u8]>>(&mut self, range: Range<K>) -> &mut Self {
         let Range { start, end } = range;
         let from = start.as_ref().to_vec();
         let to = end.as_ref().to_vec();
         self.from_key = from;
         self.to_key = to;
+        self
     }
 
     #[inline]
-    pub fn set_voters<V: Into<ConfState>>(&mut self, voters: V) {
+    pub fn set_voters<V: Into<ConfState>>(&mut self, voters: V) -> &mut Self {
         let cs = voters.into();
         self.confstate = Some(cs);
+        self
     }
 
     #[inline]
@@ -294,6 +297,7 @@ impl GroupProto {
         }
     }
 
+    /// Check if the key is in this group.
     #[inline]
     pub fn in_range<K: AsRef<[u8]>>(&self, key: K) -> bool {
         let key = key.as_ref();
@@ -305,6 +309,7 @@ impl GroupProto {
         }
     }
 
+    /// Check if a node is voter of this group.
     pub fn is_voter(&self, expected: u64) -> bool {
         self.confstate.iter().find(|&cs| {
             for voter in &cs.voters {
@@ -317,8 +322,10 @@ impl GroupProto {
     }
 
     #[inline]
-    pub fn keys<'a>(&'a self) -> (&'a [u8], &'a [u8]) {
-        (self.from_key.as_slice(), self.to_key.as_slice())
+    pub fn keys<'a>(&'a self) -> Range<RefKey<'a>> {
+        let start = RefKey::left(self.from_key.as_slice());
+        let end = RefKey::right(self.to_key.as_slice());
+        Range { start, end }
     }
 
     pub fn add_node(&mut self, node: Node<u64>) {

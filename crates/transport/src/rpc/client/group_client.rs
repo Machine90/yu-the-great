@@ -66,10 +66,9 @@ impl NodeMailbox for GroupRpcClient {
     }
 
     async fn sync_with(&self, node_id: NodeID, group_info: GroupProto) {
-        let group_id = group_info.id;
         let _ = self
             .transporter
-            .make_call_to_peer(group_id, node_id, move |service| {
+            .make_call_to_node(node_id, move |service| {
                 let group_info = group_info.clone();
                 async move {
                     service

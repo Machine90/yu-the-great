@@ -6,7 +6,6 @@ use super::simple::SimpleCoprocessor;
 use crate::coprocessor::listener::{Listeners, RaftContext};
 use crate::coprocessor::{read_index_ctx::ReadContext, RaftCoprocessor, ChangeReason};
 use crate::protos::raft_log_proto::Entry;
-use crate::storage::group_storage::GroupStorage;
 use crate::tokio::sync::RwLock;
 use crate::{PeerID, NodeID};
 use crate::{RaftResult};
@@ -71,11 +70,10 @@ impl RaftCoprocessor for LinearCoprocessor {
         &self,
         ctx: &RaftContext,
         cmds: &Vec<Vec<u8>>,
-        store: Option<Arc<dyn GroupStorage>>,
         listeners: Arc<Listeners>,
     ) {
         self.based
-            .handle_commit_cmds(ctx, cmds, store, listeners)
+            .handle_commit_cmds(ctx, cmds, listeners)
             .await
     }
 

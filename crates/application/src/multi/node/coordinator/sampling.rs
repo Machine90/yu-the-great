@@ -57,12 +57,9 @@ impl<S: GroupStorage> NodeCoordinator<S> {
     }
 
     #[inline]
-    pub async fn handle_checked<'a>(&self, reports: Vec<CheckGroup<'a>>, should_report: bool) {
+    pub async fn handle_checked<'a>(&self, _reports: Vec<CheckGroup<'a>>, should_report: bool) {
         if !should_report {
             return;
-        }
-        if let Some(federation) = self.federation.as_ref() {
-            federation.report_groups(self.node_id(), reports)
         }
     }
 

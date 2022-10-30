@@ -7,8 +7,14 @@ use torrent::bincode;
 use crate::mailbox::RaftEndpoint;
 
 #[derive(Debug, Clone, Copy)]
-pub enum Changed<'a> {
+pub enum RefChanged<'a> {
     AddNode(&'a RaftEndpoint),
+    RemoveNode(NodeID),
+}
+
+#[derive(Debug, Clone)]
+pub enum Changed {
+    AddNode(RaftEndpoint),
     RemoveNode(NodeID),
 }
 
@@ -62,10 +68,21 @@ impl EndpointChange {
         self.change_type == ConfChangeType::RemoveNode
     }
 
-    pub fn get_changed(&self) -> Changed {
+    pub fn get_changed(&self) -> RefChanged {
         match self.change_type {
             ConfChangeType::AddNode | ConfChangeType::AddLearnerNode => {
-                Changed::AddNode(self.endpoint.as_ref().unwrap())
+                RefChanged::AddNode(self.endpoint.as_ref().unwrap())
+            },
+            ConfChangeType::RemoveNode => {
+                RefChanged::RemoveNode(self.node_id)
+            },
+        }
+    }
+
+    pub fn take_changed(self) -> Changed {
+        match self.change_type {
+            ConfChangeType::AddNode | ConfChangeType::AddLearnerNode => {
+                Changed::AddNode(self.endpoint.unwrap())
             },
             ConfChangeType::RemoveNode => {
                 Changed::RemoveNode(self.node_id)
@@ -163,6 +180,11 @@ impl ChangeSet {
         Self {
             inner: HashSet::new()
         }
+    }
+
+    #[inline]
+    pub fn take_list(self) -> HashSet<EndpointChange> {
+        self.inner
     }
 
     pub fn add(mut self, change: EndpointChange) -> Self {

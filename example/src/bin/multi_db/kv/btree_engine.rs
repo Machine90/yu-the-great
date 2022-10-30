@@ -16,14 +16,14 @@ use components::{
     common::protocol::{read_state::ReadState, GroupID},
     mailbox::multi::model::*,
     mailbox::{multi::{
-        balance::{BalanceHelper, CheckPolicy, Config},
+        balance::{BalanceHelper, CheckPolicy, Config, SplitPartition},
         model::{
             check::{CheckGroup, Perspective, Usage},
             *,
         },
     }, topo::PeerID},
     protos::raft_log_proto::Entry,
-    torrent::partitions::key::Key,
+    torrent::partitions::{key::Key, partition::Partition},
     vendor::prelude::{lock::RwLock, DashMap},
 };
 use serde::{Deserialize, Serialize};
@@ -41,6 +41,7 @@ impl BTreeEngine {
         Self {
             db: RwLock::new(BTreeMap::new()),
             conf: Config {
+                enable_schedule: false,
                 check_interval_millis: 15000,
                 check_policy: CheckPolicy::Fixed {
                     min_group_size: 64,
@@ -100,30 +101,30 @@ impl BalanceHelper for BTreeEngine {
         }
     }
 
-    fn split_keys(&self, should_splits: &mut Vec<CheckGroup>) {
-        for target in should_splits {
-            let CheckGroup { from, to, .. } = target;
+    fn split_keys(&self, should_splits: &mut Vec<SplitPartition>) {
+        // for target in should_splits {
+        //     let CheckGroup { from, to, .. } = target;
 
-            let from_key = from.left_bound();
-            let to_key = to.right_bound();
+        //     let from_key = from.left_bound();
+        //     let to_key = to.right_bound();
 
-            let mut incremental = 0;
-            let split_size = target.get_split_size();
-            if split_size.is_none() {
-                continue;
-            }
-            let split_size = split_size.unwrap() as usize;
+        //     let mut incremental = 0;
+        //     let split_size = target.get_split_size();
+        //     if split_size.is_none() {
+        //         continue;
+        //     }
+        //     let split_size = split_size.unwrap() as usize;
 
-            for (k, v) in self.db.read().range((from_key, to_key)) {
-                incremental += k.len() + v.len();
+        //     for (k, v) in self.db.read().range((from_key, to_key)) {
+        //         incremental += k.len() + v.len();
 
-                if split_size <= incremental {
-                    println!("split key: {:?}", String::from_utf8(v.clone()));
-                    target.set_split_key(k);
-                    break;
-                }
-            }
-        }
+        //         if split_size <= incremental {
+        //             println!("split key: {:?}", String::from_utf8(v.clone()));
+        //             target.set_split_key(k);
+        //             break;
+        //         }
+        //     }
+        // }
     }
 
     fn clear_partitions(&self, partition: VecDeque<(GroupID, Key, Key)>) -> std::io::Result<()> {

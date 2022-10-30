@@ -1,13 +1,13 @@
-use crate::{multi::node::manager::peer_assigner::Moditication, GroupID};
+use crate::{multi::node::manager::peer_assigner::Moditication, GroupID, peer::facade::AbstractPeer};
 
 use super::Transaction;
 use common::{
     errors::application::{YuError, Yusult},
-    protos::raft_group_proto::GroupProto,
+    protos::{raft_group_proto::GroupProto}, protocol::NodeID,
 };
 use components::{
     storage::group_storage::GroupStorage,
-    torrent::partitions::{key::Key, partition::Partition},
+    torrent::partitions::{key::Key, partition::Partition}, mailbox::RaftEndpoint, utils::endpoint_change::{ChangeSet, EndpointChange},
 };
 
 impl<S: GroupStorage + Clone> Transaction<S> {
@@ -58,9 +58,12 @@ impl<S: GroupStorage + Clone> Transaction<S> {
     ///     "zz": { from: "kk", to: "zz", group: 3 }
     /// }; 
     /// ```
-    pub fn split_group(&mut self, left: GroupProto, origin: GroupID) -> Yusult<()> {
+    pub fn split_group(&mut self, origin_group: GroupID, left: GroupProto) -> Yusult<()> {
         self.trace("prepare split group");
-        let this_node = self.peer_assigner.node_id();
+        // make sure origin group is exists on this node.
+        if !self.peers.contains_key(&origin_group) {
+            return Err(YuError::BalanceError);
+        }
         let new = Partition::new_and_validate(
             Key::left(&left.from_key),
             Key::right(&left.to_key),
@@ -72,27 +75,19 @@ impl<S: GroupStorage + Clone> Transaction<S> {
             return Err(YuError::BalanceError);
         }
 
-        if !left.is_voter(this_node) {
-            self.trace("prepare remove split group");
-            // this node is not in split group, indicate that should
-            // remove group from this node, but keep the divided one.
-            if !self.version.try_remove(&new, true)? {
-                return Err(YuError::BalanceError);
-            }
-            self.modification.insert(origin, Moditication::ClearRange { 
-                from: new.from_key, 
-                to: new.to_key 
-            });
-        } else {
-            // otherwise create a new raft peer for this node.
-            let group_id = left.id;
-            self.peer_assigner
-                .new_peer(left)
-                .and_then(|created| {
-                    self.modification.insert(group_id, Moditication::Insert(created));
-                    Ok(())
-                })?;
-        }
+        // otherwise create a new raft peer for this node.
+        let group_id = left.id;
+
+        let new_from = Key::left(&left.to_key);
+        self.peer_assigner
+            .new_peer(left)
+            .and_then(|created| {
+                self.modification
+                    .add(group_id, Moditication::Insert(created))
+                    .add(origin_group, Moditication::ScaleDown { new_from }
+                );
+                Ok(())
+            })?;
         Ok(())
     }
 
@@ -134,10 +129,85 @@ impl<S: GroupStorage + Clone> Transaction<S> {
         self.peer_assigner
             .new_peer(group)
             .and_then(|created| {
-                self.modification.insert(group_id, Moditication::Insert(created));
+                self.modification.add(group_id, Moditication::Insert(created));
                 Ok(())
             })?;
         self.trace("assign group succeed");
+        Ok(())
+    }
+
+    pub async fn compaction(&mut self, pieces: Vec<GroupID>, new_group: GroupID) -> Yusult<()> {
+        if pieces.len() < 2 {
+            return Err(YuError::BalanceError);
+        }
+        let mut to_compact = Vec::with_capacity(pieces.len());
+        for group in pieces {
+            let peer = self.peers.get(&group).ok_or(YuError::BalanceError)?;
+            let (from, to) = peer.group_range();
+            to_compact.push(Partition::from_range(from..to, group));
+        }
+        // the groups prepare to merge must be adjanced with each others
+        Partition::sort(&mut to_compact);
+        // compact serveral smapll groups to new. 
+        self.version.try_compact(&to_compact, new_group, true)?;
+
+        // merge success, then these groups should be removed from peers.
+        for group in to_compact.iter() {
+            let group_id = group.resident;
+            if group_id == new_group {
+                continue;
+            }
+            self.modification.add(group_id, Moditication::MergeTo(new_group));
+        }
+
+        let first = to_compact.remove(0);
+        let last = to_compact.remove(to_compact.len() - 1);
+        self.modification.add(new_group, Moditication::ScaleUp { 
+            new_from: first.from_key, 
+            new_to: last.to_key 
+        });
+        Ok(())
+    }
+
+    /// Try to transfer given group from source node 
+    /// to dest node.
+    pub async fn transfer_to(
+        &mut self, 
+        new_leader: NodeID, 
+        group_id: GroupID, 
+        src: NodeID, 
+        transfee: RaftEndpoint
+    ) -> Yusult<()> {
+        self.trace(format!(
+            "transfer group-{} of node {} to {}", 
+            group_id, src, transfee.id
+        ).as_str());
+
+        let peer = self.peers.get(&group_id).ok_or(YuError::BalanceError)?;
+
+        let (clear_from, clear_to) = peer.group_range();
+
+        let part = Partition::new(
+            clear_from, 
+            clear_to, 
+            group_id
+        );
+        // step 1: try remove partition of group on this node in current version.
+        self.version.try_remove(&part, true)?;
+
+        if peer.leader_id().await == src {
+            // step 2: it's ok to transfer leader first, if current transaction
+            // failed, it has not effect on this node.
+            self.trace(format!("transfer leader to {}", new_leader).as_str());
+            peer.transfer_leader_async(new_leader).await?;
+        }
+        let confchange = ChangeSet::new()
+            .add(EndpointChange::add_as_voter(&transfee))
+            .add(EndpointChange::remove(src));
+        // step 3: propose changes remove current node and add new node to 
+        // given group.
+        let _ = peer.propose_conf_changes_async(confchange.into(), false).await?;
+        self.modification.add(group_id, Moditication::Remove);
         Ok(())
     }
 }

@@ -31,8 +31,12 @@ pub trait Facade: AbstractPeer {
     }
 
     #[inline]
-    fn propose_changes<C: Into<BatchConfChange>>(&self, changes: C) -> Yusult<StatusProto> {
-        blocking(self.propose_conf_changes_async(changes.into()))
+    fn propose_changes<C: Into<BatchConfChange>>(
+        &self, 
+        changes: C, 
+        get_status: bool
+    ) -> Yusult<Option<StatusProto>> {
+        blocking(self.propose_conf_changes_async(changes.into(), get_status))
     }
 
     #[inline]
@@ -82,7 +86,10 @@ pub trait AbstractPeer {
 
     /// Post changes (e.g. add voter, remove peer and add learner)
     /// to this group. Return latest status if apply changes success.
-    async fn propose_conf_changes_async(&self, changes: BatchConfChange) -> Yusult<StatusProto>;
+    async fn propose_conf_changes_async(
+        &self, changes: BatchConfChange, 
+        get_status: bool
+    ) -> Yusult<Option<StatusProto>>;
 
     async fn propose_cmd_async(&self, cmd: Vec<u8>) -> Yusult<Proposal>;
 

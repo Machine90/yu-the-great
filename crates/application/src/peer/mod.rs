@@ -24,16 +24,15 @@ use crate::{
         RaftEndpoint,
     },
     storage::group_storage::GroupStorage,
-    tokio::sync::RwLock,
     RaftResult,
 };
-use common::protos::{
-    raft_group_proto::GroupProto, raft_log_proto::{ConfState}, 
+use common::{protos::{
+    raft_group_proto::GroupProto, 
     raft_payload_proto::StatusProto
-};
+}, vendor::prelude::lock::RwLock};
 use components::{torrent::{partitions::{key::Key, partition::Partition}}, monitor::Monitor};
 use consensus::{raft_node::RaftNode};
-use std::{fmt::Debug, ops::Deref, sync::Arc};
+use std::{fmt::Debug, ops::{Deref, Range}, sync::Arc};
 
 /// Raw node with `GroupStorage` trait.
 pub type RaftPeer = RaftNode<Box<dyn GroupStorage>>;
@@ -123,6 +122,17 @@ impl Core {
         &self.coprocessor_driver.conf()
     }
 
+    pub async fn clear(&self) {
+        let group_id = self.group_id;
+        if let Some(topo) = self.mailbox.topo() {
+            topo.remove_group(&group_id);
+        }
+        let applied = self.rl_raft().await.status().applied_index;
+        // TODO: how about entries: [applied, committed] if there has 
+        // some probe, or even snapshot follower.
+        let _ = self.write_store.group_compact(group_id, applied);
+    }
+
     #[inline]
     pub fn node_id(&self) -> NodeID {
         self.coprocessor_driver.node_id()
@@ -135,63 +145,70 @@ impl Core {
 
     /// Only clone id, from_key, to_key and confstate from group.
     #[inline]
-    pub async fn build_group(&self) -> GroupProto {
-        let p = self.partition.read().await;
-        let (from_key, to_key) = (
-            p.from_key.as_left().to_vec(),
-            p.from_key.as_right().to_vec()
+    pub fn group_range(&self) -> (Key, Key) {
+        let p = self.partition.read();
+        let range = (
+            p.from_key.clone(),
+            p.to_key.clone()
         );
-        drop(p);
-        GroupProto {
-            id: self.group_id,
-            from_key, to_key,
-            ..Default::default()
-        }
+        range
     }
 
     #[inline]
-    pub async fn set_from_key<K: AsRef<[u8]>>(&self, from: K) {
-        *&mut self.partition.write().await.from_key = Key::left(from);
+    pub(crate) fn set_from_key(&self, from: Key) {
+        *&mut self.partition.write().from_key = from;
+    }
+
+    #[inline]
+    pub(crate) fn update_key_range(&self, range: Range<Key>) {
+        let Range { start, end } = range;
+        let mut partition = self.partition.write();
+        partition.from_key = start;
+        partition.to_key = end;
+    }
+
+    pub fn group_info(&self) -> Option<GroupProto> {
+        let group_id = self.group_id;
+
+        let topo = self.mailbox.topo();
+        if topo.is_none() {
+            crate::warn!("topology of this peer is absent");
+            return None;
+        }
+        let network = topo.unwrap();
+        let voters = network.copy_group_node_ids(&group_id);
+        if voters.is_none() {
+            return None;
+        }
+        let voters = voters.unwrap();
+
+        let mut endpoints = vec![];
+        for voter in voters.iter() {
+            let node = network.get_node(voter);
+            if node.is_none() {
+                continue;
+            }
+            let node = node.unwrap();
+            endpoints.push(node.as_ref().into());
+        }
+        let (from_key, to_key) = self.group_range();
+        Some(GroupProto { 
+            id: self.group_id, 
+            from_key: from_key.take(), 
+            to_key: to_key.take(), 
+            endpoints, 
+            confstate: Some(voters.into()), 
+            ..Default::default()
+        })
     }
 
     /// Sync the group detial with endpoints to the specific peer. This method
     /// called when leader figure out that some peer has lost connection.
     pub async fn sync_with(&self, peer_id: PeerID) {
-        let (group_id, follower) = peer_id;
-        let mut group = self.build_group().await;
-        let mut endpoints = vec![];
-
-        let topo = self.mailbox.topo();
-        if topo.is_none() {
-            crate::warn!(
-                "group info would not sync to peer {:?} since it's absent",
-                peer_id
-            );
-            return;
+        let follower = peer_id.1;
+        if let Some(group) = self.group_info() {
+            self.mailbox.sync_with(follower, group).await;
         }
-        let network = topo.unwrap();
-        let voters = self.rl_raft().await.status().all_voters();
-        let mut voter_vec = vec![];
-        if let Some(voters) = voters {
-            for voter in voters {
-                voter_vec.push(voter);
-                if follower == voter {
-                    continue;
-                }
-                let node = network.get_node(&group_id, &voter);
-                if node.is_none() {
-                    continue;
-                }
-                let node = node.unwrap();
-                endpoints.push(node.as_ref().into());
-            }
-        }
-        group.endpoints = endpoints;
-        group.confstate = Some(ConfState {
-            voters: voter_vec,
-            ..Default::default()
-        });
-        self.mailbox.sync_with(follower, group).await;
     }
 
     #[inline]

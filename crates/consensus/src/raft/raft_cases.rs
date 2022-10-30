@@ -105,9 +105,9 @@ impl RaftCases {
                     MsgAppend | MsgHeartbeat | MsgSnapshot => message.from,
                     _ => DUMMY_ID,
                 };
-                if message.msg_type() == MsgRequestVote {
-                    crate::debug!("[Tips] If role transfered to follower after received `MsgRequestVote` from same voter in hight frequency, prevent this case by setting `enable_pre_vote_round` to true");
-                }
+                // [Tips] If role transfered to follower after received `MsgRequestVote` from 
+                // the same voter in hight frequency, maybe there exists split peer, setting 
+                // `enable_pre_vote_round` to true.
                 local_raft.become_follower(message.term, leader_id);
             }
             // then continue to handle the message after peer's changed

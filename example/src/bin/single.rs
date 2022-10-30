@@ -225,6 +225,7 @@ fn main() {
                     .add(EndpointChange::add_as_voter(n4.endpoint()))
                     .add(EndpointChange::remove(2))
                     .into(),
+                false
             )
             .await;
         transfee_client.monitor().map(|m| {

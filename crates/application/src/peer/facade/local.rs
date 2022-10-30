@@ -94,13 +94,21 @@ impl AbstractPeer for LocalPeer {
         Ok(self.recv_read(index).await?)
     }
 
-    async fn propose_conf_changes_async(&self, changes: BatchConfChange) -> Yusult<StatusProto> {
+    async fn propose_conf_changes_async(
+        &self, 
+        changes: BatchConfChange,
+        get_status: bool
+    ) -> Yusult<Option<StatusProto>> {
         self.trace("propose_conf_changes_async");
         let _ = self
             .peer
             .handle_or_forward_conf_changes(changes, self.handle_timeout())
             .await?;
-        Ok(self.status_async().await?)
+        if get_status {
+            Ok(self.status_async().await.ok())
+        } else {
+            Ok(None)
+        }
     }
 
     async fn propose_cmd_async(&self, cmd: Vec<u8>) -> Yusult<Proposal> {

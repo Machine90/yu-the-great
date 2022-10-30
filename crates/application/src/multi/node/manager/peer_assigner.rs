@@ -1,10 +1,10 @@
-use common::{protos::raft_group_proto::{GroupProto, EndpointProto}};
+use common::{protos::raft_group_proto::{GroupProto, EndpointProto}, protocol::GroupID};
 use components::{
     mailbox::{api::GroupMailBox, topo::{Topo}, RaftEndpoint}, 
     storage::{group_storage::GroupStorage, multi_storage::{MultiStore, MultiStorage}}, 
     torrent::{topology::node::Node, partitions::key::Key}
 };
-use std::{sync::Arc, collections::HashSet, convert::TryInto};
+use std::{sync::Arc, collections::{HashSet, VecDeque, HashMap}, convert::TryInto};
 
 use crate::{
     PeerID, NodeID,
@@ -16,8 +16,27 @@ use crate::{
 
 pub enum Moditication {
     Insert(CreatedPeer),
+    ScaleDown { new_from: Key },
+    ScaleUp { new_from: Key, new_to: Key },
     Remove,
-    ClearRange { from: Key, to: Key }
+    MergeTo(GroupID),
+}
+
+pub struct Moditications {
+    pub(super) edits: HashMap<GroupID, VecDeque<Moditication>>,
+}
+
+impl Moditications {
+
+    pub fn new() -> Self {
+        Self { edits: HashMap::new() }
+    }
+
+    #[inline]
+    pub(super) fn add(&mut self, group: GroupID, modi: Moditication) -> &mut Self {
+        self.edits.entry(group).or_insert(VecDeque::new()).push_back(modi);
+        self
+    }
 }
 
 pub struct CreatedPeer {

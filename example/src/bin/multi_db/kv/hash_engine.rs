@@ -16,14 +16,14 @@ use components::{
     bincode,
     common::protocol::{read_state::ReadState, GroupID},
     mailbox::{multi::{
-        balance::{BalanceHelper, CheckPolicy, Config},
+        balance::{BalanceHelper, CheckPolicy, Config, SplitPartition},
         model::{
             check::{CheckGroup, Perspective, Usage},
             *,
         },
     }, topo::PeerID},
     protos::raft_log_proto::Entry,
-    torrent::partitions::key::{Key, RefKey},
+    torrent::partitions::{key::{Key, RefKey}, partition::Partition},
     vendor::prelude::{lock::RwLock, DashMap},
 };
 use serde::{Deserialize, Serialize};
@@ -41,6 +41,7 @@ impl HashEngine {
         Self {
             db: DashMap::new(),
             conf: Config {
+                enable_schedule: false,
                 check_interval_millis: 15000,
                 check_policy: CheckPolicy::Fixed {
                     min_group_size: 64,
@@ -119,27 +120,27 @@ impl BalanceHelper for HashEngine {
         }
     }
 
-    fn split_keys(&self, should_splits: &mut Vec<CheckGroup>) {
-        for target in should_splits {
-            let CheckGroup { from, to, .. } = target;
-            let s = from.clone();
-            let e = to.clone();
-            let split_size = target.get_split_size();
-            if split_size.is_none() {
-                continue;
-            }
+    fn split_keys(&self, should_splits: &mut Vec<SplitPartition>) {
+        // for target in should_splits {
+        //     let CheckGroup { from, to, .. } = target;
+        //     let s = from.clone();
+        //     let e = to.clone();
+        //     let split_size = target.get_split_size();
+        //     if split_size.is_none() {
+        //         continue;
+        //     }
 
-            let split_size = split_size.unwrap() as usize;
-            let mut incremental = 0;
-            self._range(s..e, |k, v| {
-                incremental += k.len() + v.len();
-                if split_size <= incremental {
-                    target.set_split_key(k);
-                    return false;
-                }
-                true
-            });
-        }
+        //     let split_size = split_size.unwrap() as usize;
+        //     let mut incremental = 0;
+        //     self._range(s..e, |k, v| {
+        //         incremental += k.len() + v.len();
+        //         if split_size <= incremental {
+        //             target.set_split_key(k);
+        //             return false;
+        //         }
+        //         true
+        //     });
+        // }
     }
 
     fn clear_partitions(&self, partition: VecDeque<(GroupID, Key, Key)>) -> std::io::Result<()> {
@@ -160,8 +161,7 @@ impl RaftListener for HashEngine {
         let mut written = 0;
         for ent in entries {
             let op = bincode::deserialize(&ent.data[..]);
-            if let Err(e) = op {
-                println!("decode err: {:?}", e);
+            if let Err(_) = op {
                 continue;
             }
             let op: Operation = op.unwrap();
@@ -184,7 +184,9 @@ impl RaftListener for HashEngine {
             Operation::Get(key) => {
                 read_states.request_ctx = self
                     .get(key.as_slice())
-                    .map(|v| v.clone())
+                    .map(|v| {
+                        v.clone()
+                    })
                     .unwrap_or_default()
             }
             _ => (),
@@ -200,16 +202,15 @@ impl RaftListener for HashEngine {
     ) {
         let (group, node) = peer_id;
         let cur_role = current_state.raft_state;
-        // [1, 200, 1000, 5000, 9999].contains(&group) &&
-        if [1, 10, 200, 500, 1000, 2000, 5000, 9999].contains(&group)
-            && cur_role == RaftRole::Leader
-        {
-            println!(
-                "[Group-{:?}] node {:?} became leader, because: {:?}",
-                group,
-                node,
-                reason.describe()
-            );
-        }
+        // if [1, 10, 200, 500, 1000, 2000, 5000, 9999].contains(&group)
+        //     && cur_role == RaftRole::Leader
+        // {
+        //     println!(
+        //         "[Group-{:?}] node {:?} became leader, because: {:?}",
+        //         group,
+        //         node,
+        //         reason.describe()
+        //     );
+        // }
     }
 }

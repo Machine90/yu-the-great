@@ -2,19 +2,19 @@
 pub(super) mod assign_group;
 
 use components::storage::group_storage::GroupStorage;
-use components::torrent::partitions::{index::mvcc::version::{Version}, key::Key};
-use std::collections::{HashMap, HashSet, VecDeque};
+use components::torrent::partitions::{index::mvcc::version::Version, key::Key};
+use std::collections::{HashSet, VecDeque};
 
-use super::peer_assigner::{PeerAssigner, Moditication};
+use super::peer_assigner::{Moditication, Moditications, PeerAssigner};
 use super::NodeManager;
 use crate::multi::node::LocalPeers;
 use crate::{peer::facade::local::LocalPeer, GroupID};
 
 pub struct Transaction<S: GroupStorage> {
     pub(super) version: Version<GroupID>,
-    modification: HashMap<GroupID, Moditication>,
+    modification: Moditications, // Should be modifications
     pub(super) peers: LocalPeers,
-    pub(super) peer_assigner: PeerAssigner<S>
+    pub(super) peer_assigner: PeerAssigner<S>,
 }
 
 impl<S: GroupStorage + Clone> Transaction<S> {
@@ -23,9 +23,9 @@ impl<S: GroupStorage + Clone> Transaction<S> {
         let version = manager.partitions().new_version();
         Self {
             version,
-            modification: Default::default(),
+            modification: Moditications::new(),
             peers: manager.peers.clone(),
-            peer_assigner: manager.peer_assigner.clone()
+            peer_assigner: manager.peer_assigner.clone(),
         }
     }
 
@@ -40,24 +40,40 @@ impl<S: GroupStorage + Clone> Transaction<S> {
 
         let mut all_voters = HashSet::new();
         let mut clear_partitions = VecDeque::new();
-
-        for (group, change) in modification {
-            match change {
-                Moditication::Insert(peer) => {
-                    let (peer, voters) = peer_assigner
-                        .apply(peer);
-                    all_voters.extend(voters);
-                    peers.insert(group, LocalPeer::new(peer));
-                },
-                Moditication::Remove => {
-                    peers.remove(&group);
-                },
-                Moditication::ClearRange { from, to } => {
-                    if let Some(peer) = peers.get(&group) {
-                        peer.set_from_key(&from).await;
-                        clear_partitions.push_back((group, from, to));
+        for (group, changes) in modification.edits {
+            for change in changes {
+                match change {
+                    Moditication::Insert(peer) => {
+                        let (peer, voters) = peer_assigner.apply(peer);
+                        all_voters.extend(voters);
+                        peers.insert(group, LocalPeer::new(peer));
                     }
-                },
+                    Moditication::ScaleDown { new_from } => {
+                        if let Some(peer) = peers.get(&group) {
+                            peer.set_from_key(new_from);
+                        }
+                    }
+                    Moditication::ScaleUp { new_from, new_to } => {
+                        if let Some(peer) = peers.get(&group) {
+                            peer.update_key_range(new_from..new_to);
+                        }
+                    }
+                    Moditication::Remove => {
+                        if let Some((_, peer)) = peers.remove(&group) {
+                            let (from, to) = peer.group_range();
+                            clear_partitions.push_back((group, from, to));
+                            peer.clear().await;
+                        }
+                    }
+                    Moditication::MergeTo(_merged_group) => {
+                        if let Some((_, peer)) = peers.remove(&group) {
+                            // TODO list: 
+                            // 1. notify to business
+                            // 2. handle unapply entries of these peers.
+                            peer.clear().await;
+                        }
+                    }
+                }
             }
         }
         version.commit();

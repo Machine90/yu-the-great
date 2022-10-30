@@ -4,6 +4,7 @@ pub mod manager;
 
 pub type LocalPeers = Arc<DashMap<GroupID, LocalPeer>>;
 
+use self::coordinator::NodeCoordinator;
 use self::manager::NodeManager;
 use crate::peer::facade::local::LocalPeer;
 use crate::vendor::prelude::*;
@@ -14,8 +15,22 @@ use std::{ops::Deref, sync::Arc};
 
 pub struct Node<S: GroupStorage> {
     pub(crate) node_manager: Arc<NodeManager<S>>,
+    pub(crate) coordinator: Option<Arc<NodeCoordinator<S>>>,
     pub(crate) scheduler: Arc<Scheduler>,
     pub(crate) terminate: Terminate,
+}
+
+impl<S: GroupStorage> Node<S> {
+    
+    #[inline]
+    pub fn coordinator(&self) -> Option<Arc<NodeCoordinator<S>>> {
+        self.coordinator.clone()
+    }
+
+    #[inline]
+    pub fn stop(&self) {
+        self.terminate.stop();
+    }
 }
 
 impl<S: GroupStorage> Deref for Node<S> {

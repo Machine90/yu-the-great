@@ -7,7 +7,6 @@ use crate::coprocessor::{
     ChangeReason, RaftCoprocessor,
 };
 use crate::protos::raft_log_proto::{Entry, Snapshot};
-use crate::storage::group_storage::GroupStorage;
 use crate::{warn, PeerID, RaftResult};
 use components::{torrent::runtime};
 use common::protocol::{response::Response, read_state::ReadState};
@@ -81,7 +80,6 @@ impl RaftCoprocessor for SimpleCoprocessor {
         &self,
         ctx: &RaftContext,
         cmds: &Vec<Vec<u8>>,
-        store: Option<Arc<dyn GroupStorage>>,
         listeners: Arc<Listeners>,
     ) {
         if listeners.is_empty() {
@@ -96,7 +94,7 @@ impl RaftCoprocessor for SimpleCoprocessor {
                     if !listener.should_execute(ctx).await {
                         continue;
                     }
-                    admin.handle_cmds(ctx, cmds, store.clone()).await;
+                    admin.handle_cmds(ctx, cmds).await;
                 }
                 _ => (),
             }

@@ -226,7 +226,7 @@ impl<S: GroupStorage + Clone> Builder<S> {
 
         let node_manager = Arc::new(NodeManager::load(peer_assigner, should_report));
         // =>> Step 3: If balancer registered, set it to coordinator.
-        if let Some(balancer) = self.node_balancer.take() {
+        let coordinator = if let Some(balancer) = self.node_balancer.take() {
             let mut coordinator = NodeCoordinator::new(
                 node_manager.clone(), 
                 balancer.clone()
@@ -244,12 +244,17 @@ impl<S: GroupStorage + Clone> Builder<S> {
                 ));
             }
 
-            // =>> Step 3-2: schedule sampler with coordinator.
-            let _ = scheduler.spawn_async(GroupChecker::new(coordinator.clone()));
+            if balancer.conf().enable_schedule {
+                // =>> Step 3-2: schedule sampler with coordinator.
+                let _ = scheduler.spawn_async(GroupChecker::new(coordinator.clone()));
+            }
             // =>> Step 3-3: then register coordinator as `Admin` listener
             // to receive and handle commands.
-            cp_driver.add_listener(Listener::Admin(coordinator));
-        }
+            cp_driver.add_listener(Listener::Admin(coordinator.clone()));
+            Some(coordinator)
+        } else {
+            None
+        };
 
         // =>> Step 4: if enable tick node.
         if self.tick {
@@ -262,6 +267,7 @@ impl<S: GroupStorage + Clone> Builder<S> {
         }
 
         Node {
+            coordinator,
             node_manager,
             scheduler: Arc::new(scheduler),
             terminate: Terminate::new(),

@@ -32,7 +32,7 @@ use crate::{
 use common::protos::raft_conf_proto::ConfChange;
 use common::protos::raft_log_proto::Snapshot;
 use components::mailbox::api::MailBox;
-use components::utils::endpoint_change::{ChangeSet, Changed, EndpointChange};
+use components::utils::endpoint_change::{ChangeSet, RefChanged, EndpointChange};
 use consensus::prelude::*;
 
 #[inline]
@@ -119,7 +119,7 @@ impl Core {
         let raft = self.rl_raft().await;
         let mut ctx: RaftContext = RaftContext::from_status(group, raft.status());
         if with_detail {
-            ctx.partition = Some(self.partition.read().await.clone());
+            ctx.partition = Some(self.partition.read().clone());
         }
         ctx
     }
@@ -285,10 +285,9 @@ impl Core {
 
         if !cmds.is_empty() {
             let cp_driver = self.coprocessor_driver.clone();
-            let store = self.write_store.clone();
             let ctx = RaftContext::from_status(group_id, raft.status());
             let handle_committed_cmds = runtime::spawn(async move {
-                cp_driver.handle_commit_cmds(ctx, cmds, Some(store)).await;
+                cp_driver.handle_commit_cmds(ctx, cmds).await;
             });
             tasks.push(("Apply commands".to_owned(), handle_committed_cmds));
         }
@@ -330,7 +329,7 @@ impl Core {
         for mut batch in changes {
             let applied = raft.apply_conf_change(&batch);
             if let Err(e) = applied {
-                error!(
+                debug!(
                     "failed to apply change: {:?} to group, reason: {:?}",
                     batch, e
                 );
@@ -358,8 +357,28 @@ impl Core {
         if !change_queue.is_empty() {
             let cp_driver = self.coprocessor_driver.clone();
             let wl_store = self.write_store.clone();
-            let notifiy_changes = runtime::spawn_blocking(move || {
-                cp_driver.handle_group_conf_change(ctx, change_queue);
+            
+            let mailbox = self.mailbox.clone();
+            let is_leader = ctx.role.is_leader();
+
+            let should_connect = cp_driver
+                    .handle_group_conf_change(ctx, change_queue);
+            let group_info = self.group_info();
+
+            let notifiy_changes = runtime::spawn(async move {
+                if is_leader && !should_connect.is_empty() && group_info.is_some() {
+                    let group_info = group_info.unwrap();
+                    if should_connect.len() == 1 {
+                        // most situation is to add 1 node in a propose.
+                        // send this group info without any clone cost.
+                        let (_, node_id) = should_connect.iter().next().unwrap();
+                        mailbox.sync_with(*node_id, group_info).await;
+                    } else {
+                        for (_, node_id) in should_connect {
+                            mailbox.sync_with(node_id, group_info.clone()).await;
+                        }
+                    }
+                }
                 if let Some(latest_conf_state) = latest_conf_state {
                     // this maybe run in a blocking scenario.
                     let _updated = wl_store.set_conf_state(latest_conf_state);
@@ -426,12 +445,12 @@ fn collect_changes<C: FnMut(EndpointChange)>(
         let change: EndpointChange = change.unwrap();
 
         match change.get_changed() {
-            Changed::AddNode(endpoint) => {
+            RefChanged::AddNode(endpoint) => {
                 if !to_adds.contains(&&endpoint.id) {
                     continue;
                 }
             }
-            Changed::RemoveNode(_) => {
+            RefChanged::RemoveNode(_) => {
                 continue;
             }
         }

@@ -9,7 +9,6 @@ use crate::coprocessor::listener::{Listeners, RaftContext, Listener};
 use crate::coprocessor::{read_index_ctx::ReadContext, ChangeReason, RaftCoprocessor};
 use crate::peer::process::read::ReadyRead;
 use crate::protos::raft_log_proto::Entry;
-use crate::storage::group_storage::GroupStorage;
 use crate::PeerID;
 use crate::{RaftMsg, RaftResult, debug, ConsensusError};
 use common::protocol::NodeID;
@@ -177,11 +176,10 @@ impl RaftCoprocessor for BatchCoprocessor {
         &self,
         ctx: &RaftContext,
         cmds: &Vec<Vec<u8>>,
-        store: Option<Arc<dyn GroupStorage>>,
         listeners: Arc<Listeners>,
     ) {
         self.based
-            .handle_commit_cmds(ctx, cmds, store, listeners)
+            .handle_commit_cmds(ctx, cmds, listeners)
             .await
     }
 
