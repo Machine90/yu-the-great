@@ -1,0 +1,43 @@
+syntax = "proto3";
+package RaftGroupProto;
+
+import "RaftConf.proto";
+import "RaftLog.proto";
+
+message PortProto {
+    string label = 1;
+    uint32 port = 2;
+}
+
+message EndpointProto {
+    uint64 id = 1;
+    string host = 2;
+    repeated PortProto ports = 3;
+    repeated string labels = 4;
+}
+
+// A rough calculation of group's usage and flow rate from 
+// latest sampling.
+message Estimate {
+    uint64 used = 1;
+    uint64 total = 2;
+    int64 throughput_ms = 3;
+}
+
+// The raft group metainfo, this struct
+// can be save to file in binary or text type.
+// See text format:
+// ```properties
+// id=1
+// voter=[1, 2, 3]
+// learner=[]
+// endpoints=1-raft://localhost:50071,2-raft://localhost:50072,3-raft://localhost:50073
+// ```
+message GroupProto {
+    uint32 id = 1;
+    bytes from_key = 2;
+    bytes to_key = 3;
+    repeated EndpointProto endpoints = 4;
+    RaftLogProto.ConfState confstate = 5;
+    Estimate estimate = 6;
+}

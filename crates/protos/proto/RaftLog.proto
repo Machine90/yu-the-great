@@ -1,0 +1,65 @@
+syntax = "proto3";
+package RaftLogProto;
+
+enum EntryType {
+    EntryNormal = 0;
+    EntryConfChange = 1;
+    EntryCmd = 2;
+}
+
+// The entry is a type of change that needs to be applied. It contains two data fields.
+// While the fields are built into the model; their usage is determined by the entry_type.
+//
+// For normal entries, the data field should contain the data change that should be applied.
+// The context field can be used for any contextual data that might be relevant to the
+// application of the data.
+//
+// For configuration changes, the data will contain the ConfChange message and the
+// context will provide anything needed to assist the configuration change. The context
+// if for the user to set and use in this case.
+message Entry {
+    EntryType entry_type = 1;
+    uint64 term = 2;
+    uint64 index = 3;
+    bytes data = 4;
+    bytes context = 6;
+
+    // Deprecated! It is kept for backward compatibility.
+    // TODO: remove it in the next major release.
+    bool sync_log = 5;
+}
+
+message ConfState {
+    repeated uint64 voters = 1;
+    repeated uint64 learners = 2;
+
+    // The voters in the outgoing config. If not empty the node is in joint consensus.
+    repeated uint64 voters_outgoing = 3;
+    // The nodes that will become learners when the outgoing config is removed.
+    // These nodes are necessarily currently in nodes_joint (or they would have
+    // been added to the incoming config right away).
+    repeated uint64 learners_next = 4;
+    // If set, the config is joint and Raft will automatically transition into
+    // the final config (i.e. remove the outgoing config) when this is safe.
+    bool auto_leave = 5;
+}
+
+message HardState {
+    uint64 term = 1;
+    uint64 vote = 2;
+    uint64 commit = 3;
+}
+
+message SnapshotMetadata {
+    // The current `ConfState`.
+    ConfState conf_state = 1;
+    // The applied index.
+    uint64 index = 2;
+    // The term of the applied index.
+    uint64 term = 3;
+}
+
+message Snapshot {
+    bytes data = 1;
+    SnapshotMetadata metadata = 2;
+}

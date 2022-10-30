@@ -1,0 +1,22 @@
+[package]
+name = "transport"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+default = []
+rpc_transport = ["tarpc_ext"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+futures = { version = "0.3" }
+slog = { version = "2.7" }
+
+components = { path = "../components", features = ["mailbox"]}
+common = { path = "../common" }
+
+tarpc_ext = { git = "https://github.com/Machine90/yu-toolkits.git", branch = "master", optional = true }
+
+[dev-dependencies]
+tarpc_ext = { git = "https://github.com/Machine90/yu-toolkits.git", branch = "master" }

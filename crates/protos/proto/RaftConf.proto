@@ -1,0 +1,32 @@
+syntax = "proto3";
+package RaftConfProto;
+
+enum ConfChangeType {
+    // A voter has all privillages. it can take part in
+    // an election, append and read_index, leader will try 
+    // to keep consistence with a voter
+    AddNode = 0;
+    RemoveNode = 1;
+    // Learner can recv Append, Snapshot and Heartbeat, but can't 
+    // join the election, and can't join the commit calculation.
+    AddLearnerNode = 2;
+}
+
+enum ConfChangeTransition {
+    Auto = 0;
+    Implicit = 1;
+    Explicit = 2;
+}
+
+message ConfChange {
+    uint64 node_id = 1;
+    ConfChangeType change_type = 2;
+    bytes context = 3;
+}
+
+message BatchConfChange {
+    uint64 id = 1;
+    ConfChangeTransition transition = 2;
+    repeated ConfChange changes = 3;
+    bytes context = 4;
+}

@@ -1,0 +1,36 @@
+[package]
+name = "yu-the-great"
+version = "0.1.0"
+authors = ["Xun <machine90831@gmail.com>"]
+edition = "2021"
+description = "The liberary for distributed consensus using"
+categories = ["raft", "consensus", "distributed"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[workspace]
+members = ["crates/*", "example"]
+
+[features]
+default = ["application", "multi", "single", "rpc"]
+# Multi-raft or Single
+multi = ["application/multi", "components_multi"]
+single = ["application/single", "components_basic"]
+rpc = ["application/rpc_transport"]
+
+# Components
+components_basic = ["components/basic"]
+components_multi = ["components/multi", "components_basic"]
+
+[dependencies]
+common = { path = "crates/common", optional = true }
+components = { path = "crates/components", optional = true }
+consensus = { path = "crates/consensus", optional = true }
+application = { path = "crates/application", optional = true }
+aquamarine = "0.1"
+
+[dev-dependencies]
+common = { path = "crates/common" }
+components = { path = "crates/components" }
+consensus = { path = "crates/consensus" }
+application = { path = "crates/application" }

@@ -1,0 +1,19 @@
+[package]
+name = "consensus"
+version = "0.1.0"
+authors = ["Xun <machine90831@gmail.com>"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+fxhash = "0.2" # fxhash is the fatest hash lib for primitive type
+rand = "0.8"
+slog = "2.7"
+
+common = { path = "../common" }
+
+[dev-dependencies]
+criterion = "0.3"
+anyhow = "1.0.32"
+itertools = "0.10"

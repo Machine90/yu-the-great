@@ -1,0 +1,37 @@
+syntax = "proto3";
+package MultiProto;
+
+import "RaftGroup.proto";
+import "RaftPayload.proto";
+
+message GroupMessage {
+    uint32 group = 1;
+    RaftPayloadProto.Message message = 2;
+}
+
+// Batched messages that prepare send to 
+// the same node.
+message BatchMessages {
+    uint64 to = 1;
+    repeated GroupMessage messages = 2;
+}
+
+enum Assignment {
+    Split = 0;
+    Create = 1;
+    Compact = 2;
+    Transfer = 3;
+}
+
+message BalanceCmd {
+    Assignment assignment = 1;
+    repeated RaftGroupProto.GroupProto groups = 2;
+    repeated RaftGroupProto.EndpointProto padded_endpoints = 3;
+    uint32 consumer = 4;
+}
+
+message BatchBalance {
+    uint64 id = 1;
+    repeated BalanceCmd cmds = 2;
+    bytes context = 3;
+}

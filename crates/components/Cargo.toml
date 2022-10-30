@@ -1,0 +1,33 @@
+[package]
+name = "components"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+default = ["mailbox"]
+basic = ["mailbox", "storage"]
+full = ["mailbox", "storage", "multi"]
+
+mailbox = ["torrent"]
+storage = []
+multi = []
+
+[dependencies]
+slog = { version = "2.7" }
+async-trait = { version = "0.1.7" }
+serde = { version = "1.0", features = ["derive"] }
+
+common = { path = "../common" }
+
+# optional dependencies
+torrent = { git = "https://github.com/Machine90/yu-toolkits.git", branch = "master", features = [
+    "tokio1",
+    "fastcp",
+], optional = true }
+
+[dev-dependencies]
+torrent = { git = "https://github.com/Machine90/yu-toolkits.git", branch = "master", features = [
+    "tokio1",
+    "fastcp",
+] }

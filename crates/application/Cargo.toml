@@ -1,0 +1,36 @@
+[package]
+name = "application"
+version = "0.1.0"
+authors = ["Xun <machine90831@gmail.com>"]
+edition = "2021"
+
+[features]
+default = ["components_basic"]
+# feature multi is still developing
+multi = ["sysinfo", "num_cpus", "components_multi"]
+single = []
+
+components_basic = ["components/basic"]
+components_multi = ["components/multi", "components_basic"]
+
+rpc_transport = ["transport/rpc_transport"]
+
+[dependencies]
+consensus = { path = "../consensus", version = "*" }
+components = { path = "../components", default-features = false }
+common = { path = "../common" }
+transport = { path = "../transport", default-features = false }
+
+byteorder = { version = "1.4.3" }
+serde = { version = "1.0", features = ["derive"] }
+
+slog = { version = "2.7" }
+futures = { version = "0.3" }
+
+# for system metrics collect
+sysinfo = { version = "0.19", optional = true }
+num_cpus = { version = "1", optional = true }
+
+[dev-dependencies]
+sysinfo = { version = "0.19" }
+num_cpus = { version = "1" }
