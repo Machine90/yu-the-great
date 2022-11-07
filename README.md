@@ -25,7 +25,8 @@ Let's make clear some important concepts before using this library:
 We haven't deploy it to any repo like crate.io (in plan) now, so if you have interesting, import it from git.
 
 ```
-yu-the-greate = { git = "https://github.com/Machine90/yu-the-great.git", default-features = false }
+[dependencies]
+yu-the-great = { git = "https://github.com/Machine90/yu-the-great.git", default-features = false }
 ```
 
 ### Features
