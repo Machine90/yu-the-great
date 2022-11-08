@@ -1,55 +1,44 @@
 use quick_error::quick_error;
 
 quick_error! {
-
     #[derive(Debug)]
     pub enum Error {
-        /// An IO error occurred
         Io(err: std::io::Error) {
             from()
-            cause(err)
-            description(err.description())
+            source(err)
         }
-        /// A storage error occurred.
         Store(err: StorageError) {
             from()
-            cause(err)
-            description(err.description())
+            source(err)
         }
         Other(err: Box<dyn std::error::Error + Sync + Send>) {
             from()
-            cause(err.as_ref())
-            description(err.description())
+            source(&**err)
             display("{:?}", err)
         }
-        /// The proposal of changes was dropped.
         ProposalDropped(reason: String) {
-            description("proposal dropped")
             display("{}", reason)
         }
-        /// Conf change error
         ConfChange(message: String) {
             display("{}", message)
         }
-        /// When stepping with a local message.
         StepLocalMsg {
-            description("shouldn't step in a raft local message")
+            display("shouldn't step in a raft local message")
         }
         StepPeerNotFound {
-            description("the peer attempt to step was not found")
+            display("the peer attempt to step was not found")
         }
         RequestSnapshotDropped {
-            description("the snapshot was dropped")
+            display("the snapshot was dropped")
         }
         Nothing {
-            description("there has nothing in ready and nothing to response")
+            display("there has nothing in ready and nothing to response")
         }
         NotReachQuorum {
-            description("request has not reached the quorum")
             display("less than majority (n / 2 + 1) peers of consensus group response for this operation")
         }
         Pending {
-            description("request still in pending")
+            display("request still in pending")
         }
     }
 }
@@ -60,29 +49,28 @@ quick_error! {
     pub enum StorageError {
         /// The storage was compacted and not accessible
         Compacted {
-            description("log compacted")
+            display("log compacted")
         }
         DisContinuous {
-            description("log should be continuous")
+            display("log should be continuous")
         }
         /// The log is not available.
         Unavailable {
-            description("log unavailable")
+            display("log unavailable")
         }
         /// The snapshot is out of date.
         SnapshotOutOfDate {
-            description("snapshot out of date")
+            display("snapshot out of date")
         }
         /// The snapshot is being created.
         SnapshotTemporarilyUnavailable {
-            description("snapshot is temporarily unavailable")
+            display("snapshot is temporarily unavailable")
         }
         /// Some other error occurred.
         Other(err: Box<dyn std::error::Error + Sync + Send>) {
             from()
-            cause(err.as_ref())
-            description(err.description())
-            display("unknown error {:?}", err)
+            source(&**err)
+            display("error {:?}", err)
         }
     }
 }
@@ -116,32 +104,26 @@ pub mod application {
         pub enum YuError {
             IoError(ie: std::io::Error) {
                 from()
-                description(ie.description())
                 display("{:?}", &ie)
             }
             ConsensusError(ce: Error) {
                 from()
-                description(ce.description())
                 display("{:?}", &ce)
             }
             NotSuchPeer(group_id: u32, node_id: u64) {
-                description(format!("Not such Raft Node"))
                 display("node-{:?} not found in group-{:?}", node_id, group_id)
             }
             CodecError(error_msg: String) {
-                from()
-                description(error_msg)
                 display("{:?}", error_msg)
             }
             BalanceError {
-                from()
-                description("failed to do balance job")
+                display("failed to do balance job")
             }
             Abort {
-                description("abort server")
+                display("abort server")
             }
             UnknownError {
-                description("unknown error")
+                display("unknown error")
             }
         }
     }

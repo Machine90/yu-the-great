@@ -2,7 +2,7 @@ use std::{ffi::OsString, fmt::Display};
 
 #[derive(Debug, Clone, Default)]
 pub struct SysMetrics {
-    pub pid: usize,
+    pub pid: String,
     /// Start timestamp for process, in ms.
     pub start_ts: u64,
     /// Percentage of CPU usage.

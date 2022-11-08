@@ -1,4 +1,4 @@
-<img src="./document/imgs/logo.png" width="200"/>
+<img src="./document/imgs/logo.png" width="300"/>
 
 ## [Architecture](document/design.md) |  [Multi Raft](document/multi/multi_raft.md) | [Configuration](document/configuration.md)
 
