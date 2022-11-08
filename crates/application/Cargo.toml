@@ -28,9 +28,9 @@ slog = { version = "2.7" }
 futures = { version = "0.3" }
 
 # for system metrics collect
-sysinfo = { version = "0.19", optional = true }
+sysinfo = { version = "0.26", optional = true }
 num_cpus = { version = "1", optional = true }
 
 [dev-dependencies]
-sysinfo = { version = "0.19" }
+sysinfo = { version = "0.26" }
 num_cpus = { version = "1" }

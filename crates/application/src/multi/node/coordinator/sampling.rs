@@ -161,7 +161,7 @@ impl<S: GroupStorage> NodeCoordinator<S> {
         }
 
         let metrics = SysMetrics {
-            pid,
+            pid: pid.to_string(),
             start_ts,
             cpu_usage,
             cpu_load: (one, five, fifteen),
