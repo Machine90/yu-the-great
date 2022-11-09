@@ -1,17 +1,25 @@
-use std::{collections::HashSet, convert::TryInto, ops::Deref, str::FromStr, sync::Arc, time::Duration};
+use std::{
+    collections::HashSet, convert::TryInto, ops::Deref, str::FromStr, sync::Arc, time::Duration,
+};
 
-use common::protos::{prelude::raft_group_ext::valid_str_list, raft_group_proto::GroupProto, multi_proto::MultiGroup};
+use crate::vendor::prelude::*;
+use common::protos::{
+    
+    prelude::raft_group_ext::valid_str_list, raft_group_proto::GroupProto,
+};
+
+#[allow(unused)] 
+use common::protos::{multi_proto::MultiGroup};
 use torrent::{
     network::Network,
     topology::{node::Node, topo::Topology},
 };
-use crate::vendor::prelude::*;
 
 use super::{COORDINATOR_GROUP_ID, LABEL_MAILBOX};
 
+use common::protocol::GroupID;
 /// Using for locating the peer's address in multi-raft
 use common::protocol::NodeID;
-use common::protocol::GroupID;
 pub use common::protocol::PeerID;
 pub type Host = String;
 pub type Port = u16;
@@ -30,8 +38,8 @@ impl TopoConf {
 
 impl Default for TopoConf {
     fn default() -> Self {
-        Self { 
-            connect_timeout_millis: 200 
+        Self {
+            connect_timeout_millis: 200,
         }
     }
 }
@@ -76,11 +84,7 @@ impl FromStr for Topo {
                 warn!("should not set `coordinator` group with id 0 in topology address list");
                 return;
             }
-            let node = Node::new(
-                node, 
-                LABEL_MAILBOX, 
-                format!("{}:{}", host, port).as_str()
-            );
+            let node = Node::new(node, LABEL_MAILBOX, format!("{}:{}", host, port).as_str());
             topo.add_node(group, node.unwrap());
         });
         let network = Network::restore(topo);
@@ -92,7 +96,6 @@ impl FromStr for Topo {
 }
 
 impl Topo {
-
     #[inline]
     pub fn network(&self) -> &Arc<Network<GroupID, NodeID>> {
         &self.network
@@ -129,11 +132,10 @@ impl Topo {
                     nodes.insert(*v);
                 }
             } else {
-                topo.copy_group_node_ids(&group.id)
-                    .map(|ns| {
-                        nodes.extend(&ns);
-                        group.confstate = Some(ns.into());
-                    });
+                topo.copy_group_node_ids(&group.id).map(|ns| {
+                    nodes.extend(&ns);
+                    group.confstate = Some(ns.into());
+                });
             }
         }
         if nodes.is_empty() {

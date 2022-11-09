@@ -2,8 +2,10 @@ pub mod group_client;
 
 use std::{marker::PhantomData};
 use common::protocol::{NodeID, GroupID};
-use crate::{mailbox::{topo::{Topo}, LABEL_MAILBOX}};
-use std::io::{Result};
+use tarpc_ext::tcp::rpc::client::RpcError;
+use components::mailbox;
+use mailbox::{topo::{Topo}, LABEL_MAILBOX};
+use std::io::{Result, Error, ErrorKind};
 use futures::Future;
 use crate::vendor::prelude::*;
 use crate::tokio;
@@ -69,7 +71,7 @@ impl<C: Send + Sync + Clone + 'static> Transporter<C> {
     pub async fn make_call_to_peer<H, Fut, R>(&self, group: GroupID, node: NodeID, mut handle: H) -> Result<R> 
     where 
         H: FnMut(C) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<R>> + Send + Sync,
+        Fut: Future<Output = std::result::Result<R, RpcError>> + Send + Sync,
         R: Send + Sync + 'static,
     {
         let client = self.try_acquire_client(group, node, false).await?;
@@ -89,13 +91,17 @@ impl<C: Send + Sync + Clone + 'static> Transporter<C> {
         } else {
             invoked.unwrap()
         };
-        result
+        if let Err(e) = result {
+            Err(_rpc_err(e))
+        } else {
+            Ok(result.unwrap())
+        }
     }
 
     pub async fn make_call_to_node<H, Fut, R>(&self, node: NodeID, mut handle: H) -> Result<R> 
     where 
         H: FnMut(C) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<R>> + Send + Sync,
+        Fut: Future<Output = std::result::Result<R, RpcError>> + Send + Sync,
         R: Send + Sync + 'static,
     {
         let client = self.try_acquire_node_client(node, false).await?;
@@ -115,6 +121,33 @@ impl<C: Send + Sync + Clone + 'static> Transporter<C> {
         } else {
             invoked.unwrap()
         };
-        result
+        if let Err(e) = result {
+            Err(_rpc_err(e))
+        } else {
+            Ok(result.unwrap())
+        }
+    }
+}
+
+fn _rpc_err(e: RpcError) -> Error {
+    match e {
+        RpcError::Disconnected => {
+            Error::new(
+                ErrorKind::NotConnected, 
+                format!("can't connect to target, see: {e}")
+            )
+        },
+        RpcError::DeadlineExceeded => {
+            Error::new(
+                ErrorKind::ConnectionRefused, 
+                format!("too many inflight requests, see: {e}")
+            )
+        },
+        RpcError::Server(se) => {
+            Error::new(
+                ErrorKind::ConnectionAborted, 
+                format!("server error, see: {se}")
+            )
+        },
     }
 }
