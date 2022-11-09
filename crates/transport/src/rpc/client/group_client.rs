@@ -1,8 +1,10 @@
 use super::{RaftTransporter, Transporter};
-use crate::{mailbox::topo::Topo, rpc::RaftServiceClient};
-
+use crate::{rpc::RaftServiceClient};
+use components::mailbox;
+use mailbox::topo::Topo;
 use crate::vendor::prelude::*;
-use crate::{RaftMsg, RaftResult};
+use common::errors::Result as RaftResult;
+use crate::{RaftMsg};
 use common::protos::multi_proto::BatchMessages;
 use common::{
     protocol::{GroupID, NodeID},
