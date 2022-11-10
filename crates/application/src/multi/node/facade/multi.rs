@@ -2,13 +2,12 @@ use crate::{
     multi::node::Node,
     peer::{
         facade::AbstractPeer,
-        process::proposal::{self},
     },
     ConsensusError,
 };
 use common::{
     errors::application::{YuError, Yusult},
-    protocol::read_state::ReadState,
+    protocol::{read_state::ReadState, proposal::Proposal},
 };
 use components::{
     bincode::serialize,
@@ -43,12 +42,12 @@ impl<S: GroupStorage> MultiRaftApi for Node<S> {
         let proposal = peer.propose_async(content).await?;
 
         match proposal {
-            proposal::Proposal::Commit(index) => Ok(builder.build(index)),
-            proposal::Proposal::Pending => Err(YuError::ConsensusError(ConsensusError::Pending)),
-            proposal::Proposal::Timeout => Err(YuError::IoError(Error::new(
+            Proposal::Commit(index) => Ok(builder.build(index)),
+            Proposal::Pending => Err(YuError::ConsensusError(ConsensusError::Pending)),
+            Proposal::Timeout => Err(YuError::IoError(Error::new(
                 ErrorKind::TimedOut,
                 format!(
-                    "proposal timeout, total elapsed for {}ms",
+                    "proposal timeout, total elapsed {}ms",
                     builder.elapsed()
                 ),
             ))),

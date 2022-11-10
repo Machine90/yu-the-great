@@ -1,6 +1,5 @@
 use std::{
-    convert::{TryFrom, TryInto},
-    io::ErrorKind,
+    convert::{TryInto},
     time::Duration,
 };
 
@@ -14,6 +13,7 @@ use crate::{
     RaftResult, 
     coprocessor::listener::RaftContext,
 };
+use common::protocol::proposal::Proposal;
 use consensus::{
     prelude::raft_role::RaftRole,
     raft_node::{raft_functions::RaftFunctions, raft_process::RaftProcess, Ready},
@@ -30,41 +30,6 @@ enum RouteProposal {
     Commit(u64, Option<Vec<RaftMsg>>),
     /// Neither append nor commit, it's a issue?
     Pending(RaftContext),
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum Proposal {
-    Commit(u64),
-    Pending,
-    Timeout,
-}
-
-impl TryFrom<RaftResult<u64>> for Proposal {
-    type Error = ConsensusError;
-
-    fn try_from(value: RaftResult<u64>) -> Result<Self, Self::Error> {
-        match value {
-            Ok(commit) => Ok(Proposal::Commit(commit)),
-            Err(e) => match e {
-                ConsensusError::Io(io) if io.kind() == ErrorKind::TimedOut => Ok(Proposal::Timeout),
-                ConsensusError::Pending => Ok(Proposal::Pending),
-                _ => Err(e),
-            },
-        }
-    }
-}
-
-impl Into<RaftResult<u64>> for Proposal {
-    fn into(self) -> RaftResult<u64> {
-        match self {
-            Proposal::Commit(idx) => Ok(idx),
-            Proposal::Pending => Err(ConsensusError::Pending),
-            Proposal::Timeout => {
-                let timeout_err = std::io::Error::new(ErrorKind::TimedOut, "timeout for proposal");
-                Err(ConsensusError::Io(timeout_err))
-            }
-        }
-    }
 }
 
 impl Peer {

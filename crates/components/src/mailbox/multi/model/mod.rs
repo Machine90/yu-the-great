@@ -1,8 +1,8 @@
 pub mod indexer;
 pub mod check;
 
-use std::{time::SystemTime};
-use common::protocol::PeerID;
+use std::{time::SystemTime, fmt::Display};
+use common::{protocol::PeerID};
 
 pub struct Location {
     location: PeerID,
@@ -40,4 +40,12 @@ pub struct Located<T> {
     pub location: PeerID,
     pub elapsed_ms: u64,
     pub result: T,
+}
+
+impl<T: Display> Display for Located<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Located { location, elapsed_ms, result } = self;
+        let (group, node) = *location;
+        write!(f, "Effect on Node-{node} Group-{group}, return: {result} total elapsed {elapsed_ms}ms")
+    }
 }

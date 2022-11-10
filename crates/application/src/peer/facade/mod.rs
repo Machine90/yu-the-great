@@ -2,13 +2,13 @@ pub mod local;
 pub mod mailbox;
 
 use super::{
-    process::{proposal::Proposal, tick::Ticked},
+    process::{tick::Ticked},
     PeerID,
 };
 use crate::async_trait;
 use crate::protos::{prelude::BatchConfChange, raft_payload_proto::StatusProto};
 use crate::{mailbox::RaftEndpoint, YuError, Yusult};
-use common::protocol::{read_state::ReadState, NodeID};
+use common::protocol::{read_state::ReadState, NodeID, proposal::Proposal};
 use consensus::prelude::raft_role::RaftRole;
 use serde::Serialize;
 

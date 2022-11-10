@@ -6,13 +6,13 @@ use crate::{
     mailbox::{RaftEndpoint},
     peer::{
         facade::{AbstractPeer, Facade},
-        process::{proposal::Proposal, tick::Ticked},
+        process::{tick::Ticked},
         Peer, PeerID,
     },
     RaftMsg, RaftResult, coprocessor::read_index_ctx::{ReadContext, EvaluateRead}
 };
 use crate::async_trait;
-use common::{protos::raft_log_proto::Snapshot, protocol::read_state::ReadState};
+use common::{protos::raft_log_proto::Snapshot, protocol::{read_state::ReadState, proposal::Proposal}};
 use consensus::{prelude::{raft_role::RaftRole}, raft_node::SnapshotStatus};
 use crate::protos::{prelude::BatchConfChange, raft_payload_proto::StatusProto};
 use crate::vendor::prelude::*;

@@ -116,8 +116,10 @@ pub mod application {
             CodecError(error_msg: String) {
                 display("{:?}", error_msg)
             }
-            BalanceError {
-                display("failed to do balance job")
+            BalanceError(err: Box<dyn std::error::Error + Sync + Send>) {
+                from()
+                source(&**err)
+                display("{:?}", &err)
             }
             Abort {
                 display("abort server")
@@ -142,8 +144,11 @@ pub mod application {
                 YuError::CodecError(ce) => {
                     IOError::new(ErrorKind::InvalidInput, format!("codec error: {:?}", ce))
                 }
-                YuError::BalanceError => {
-                    IOError::new(ErrorKind::Unsupported, "failed to do balance job")
+                YuError::BalanceError(e) => {
+                    IOError::new(
+                        ErrorKind::Unsupported, 
+                        format!("{:?}", e)
+                    )
                 },
                 YuError::Abort => {
                     IOError::new(ErrorKind::Other, "abort server")

@@ -1,13 +1,16 @@
 use application::multi::node::Node;
 use application::store::memory::store::PeerMemStore;
+use components::common::protocol::GroupID;
 use components::common::protocol::NodeID;
 use components::common::protocol::read_state::ReadState;
+use components::mailbox::RaftEndpoint;
 use components::mailbox::multi::api::MultiRaftApi;
 use components::mailbox::multi::model::Located;
 use components::protos::multi_proto::Assignments;
 use components::protos::multi_proto::Merge;
 use components::protos::multi_proto::Split;
 use components::protos::multi_proto::Transfer;
+use components::protos::raft_group_proto::GroupProto;
 use components::tokio1::runtime::Runtime;
 use components::vendor::prelude::DashMap;
 use components::vendor::prelude::LogLevel;
@@ -59,7 +62,8 @@ help
 
 fn main() {
     set_logger(LogLevel::Debug, true);
-    Runtime::new().unwrap().block_on(three());
+    let cluster = Arc::new(SimulateCluster::default());
+    Runtime::new().unwrap().block_on(run(cluster));
 }
 
 type MemNode =  Node<PeerMemStore>;
@@ -78,6 +82,19 @@ impl SimulateCluster {
             .map(|v| v.value().clone())
     }
 
+    fn next_group(&self) -> GroupID {
+        let mut max_group = 0;
+        for node in self.nodes.iter() {
+            let max = node.partitions()
+                .current()
+                .iter().map(|(_, p)| p.resident)
+                .max()
+                .unwrap_or(0);
+            max_group = std::cmp::max(max_group, max);
+        }
+        max_group
+    }
+
     fn list(&self) {
         println!("+---------------------------------------------------------------------+");
         for node in self.nodes.iter() {
@@ -89,11 +106,37 @@ impl SimulateCluster {
         }
         println!("+---------------------------------------------------------------------+")
     }
+
+    fn endpoints_of(&self, nodes: &Vec<NodeID>) -> Vec<RaftEndpoint> {
+        let mut collected = vec![];
+        for node_id in nodes.iter() {
+            let id = *node_id;
+            let node = self.nodes.get(&id);
+            if node.is_none() {
+                continue;
+            }
+            let node = node.unwrap().conf().get_endpoint();
+            if let Ok(node) = node {
+                collected.push(node);
+            }
+        }
+        collected
+    }
+}
+
+async fn run(cluster: Arc<SimulateCluster>) {
+    loop {
+        println!("[>>> enter command: >>]:");
+        let mut cmd = String::default();
+        if std::io::stdin().read_line(&mut cmd).is_err() {
+            continue;
+        }
+        resolve_cmd(cmd, cluster.clone()).await;
+    }
 }
 
 #[allow(unused)]
-async fn three() {
-    let cluster = Arc::new(SimulateCluster::default());
+async fn three(cluster: Arc<SimulateCluster>) {
     for id in 1..=3 {
         let n = node_three::build_node(
             id, 
@@ -104,15 +147,6 @@ async fn three() {
     }
     // node 1 group 1
     println!("{INITIALIZED}{HELP}");
-
-    loop {
-        println!("[>>> enter command: >>]:");
-        let mut cmd = String::default();
-        if std::io::stdin().read_line(&mut cmd).is_err() {
-            continue;
-        }
-        resolve_cmd(cmd, cluster.clone()).await;
-    }
 }
 
 async fn resolve_cmd(cmd: String, nodes: Arc<SimulateCluster>) -> Option<()> {
@@ -162,8 +196,6 @@ async fn resolve_cmd(cmd: String, nodes: Arc<SimulateCluster>) -> Option<()> {
             trim(n).parse::<u32>().unwrap_or_default()
         }).filter(|n| *n != 0).collect();
         let deleg = nodes.get(1)?;
-
-        // TODO: compactions is incorrect now.
         deleg.coordinator().as_ref()?.process_assignments(Assignments {
             should_merge: vec![
                 Merge { src_groups, ..Default::default() }
@@ -176,10 +208,7 @@ async fn resolve_cmd(cmd: String, nodes: Arc<SimulateCluster>) -> Option<()> {
         let src_group = trim(tokens.get(1)?).parse::<u32>().ok()?;
         let split_key = trim(tokens.get(2)?).as_bytes().to_vec();
         let deleg = nodes.get(1)?;
-        let next_group = deleg.partitions()
-            .current()
-            .iter().map(|(_, p)| p.resident)
-            .max()?;
+        let next_group = nodes.next_group();
 
         deleg.coordinator().as_ref()?.process_assignments(Assignments {
             should_split: vec![Split { 
@@ -215,6 +244,39 @@ async fn resolve_cmd(cmd: String, nodes: Arc<SimulateCluster>) -> Option<()> {
             addr.as_str(), 
             true
         ));
+    } else if cmd.starts_with("assign") {
+        // `assign 1,2,3 1..3
+        let tokens: Vec<_> = cmd.split(" ").collect();
+        let voters = trim(tokens.get(1)?);
+        let range = trim(tokens.get(2)?);
+
+        let voters: Vec<u64> = voters.split(',').map(|n| {
+            trim(n).parse::<u64>().unwrap_or_default()
+        }).filter(|n| *n != 0).collect();
+
+        let mut range = range.split("..").map(|p| {
+            trim(p).as_bytes().to_vec()
+        });
+        let from_key = range.next()?;
+        let to_key = range.next()?;
+
+        let endpoints = nodes.endpoints_of(&voters).iter().map(|e| {
+            e.into()
+        }).collect();
+        let group = GroupProto {
+            id: nodes.next_group(),
+            from_key,
+            to_key,
+            confstate: Some(voters.clone().into()),
+            endpoints,
+            ..Default::default()
+        };
+
+        for node_id in voters {
+            let peer = nodes.get(node_id)?;
+            peer.coordinator()?.maybe_assign_group(group.clone()).await.ok()?;
+        }
+        eprintln!("create group success!");
     }
     None
 }

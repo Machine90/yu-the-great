@@ -449,8 +449,9 @@ where
                 hint: codec,
                 ..Default::default()
             },
-            YuError::BalanceError => Self {
+            YuError::BalanceError(e) => Self {
                 code: YU_BALANCE_FAILED,
+                hint: e.to_string(),
                 ..Default::default()
             },
             YuError::Abort => Self {
@@ -491,7 +492,7 @@ where
                 }
             }
             YU_CODEC_ERR => YuError::CodecError(hint),
-            YU_BALANCE_FAILED => YuError::BalanceError,
+            YU_BALANCE_FAILED => YuError::BalanceError(hint.into()),
             YU_ABORT => YuError::Abort,
             _ => YuError::UnknownError,
         }
