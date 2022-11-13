@@ -6,7 +6,9 @@
 
 Unlike others distributed project, Yu is not a standalone server program, so that developers don't need to deploy it separately, just integrate it with your project. Yu is inspired by some great distributed systems from HBase, TiKV and etcd, is aimed to make it easily to develop scalable distributed project.
 
-About name, Yu the great, also known as  Da yu, hero of China in ancient times who tamed the floods and protected residents from disaster, he drained and dredged the water and diverted the flood into the sea...  We hope this project can help others to tame the network data flow same as Yu who tamed the floods.
+About project name, "Yu the great", also known as  Da yu, hero of China in ancient times who tamed the floods and protected residents from disaster, he drained and dredged the water and diverted the flood into the sea...  We hope this project can help others to tame the network data flow same as Yu who tamed the floods.
+
+The logo is designed by my wife Kelly, thanks a lot!
 
 ## Quick Start
 
@@ -16,6 +18,7 @@ We haven't deploy it to any repo like crate.io (in plan) now, so if you have int
 
 ```
 [dependencies]
+# full features: ["multi", "single", "rpc"]
 yu-the-great = { git = "https://github.com/Machine90/yu-the-great.git", default-features = false }
 ```
 
@@ -75,6 +78,7 @@ impl RaftListener for HelloWorld {
     }
 }
 
+// simulate 3 Node with RPC transport
 fn main() {
     let group = GroupProto {
         id: 1, // group 1
@@ -130,6 +134,8 @@ See: https://github.com/Machine90/yu-examples
 
 
 ### Environment
+Install Rust: [Rust download](https://www.rust-lang.org/tools/install)
+
 
 | software | version |
 | -------- | ------- |
@@ -184,3 +190,58 @@ Let's explain some important concepts of this library:
   * BatchTicker: This schedule used to tick all groups on this node period, and send heartbeat in batch.
 
 * **rpc**: RPC implementation of mailbox, powered by Tarpc
+
+
+
+## Stack
+
+#### Tokio
+A runtime for writing reliable, asynchronous, and slim applications with the Rust programming language.
+
+Link: [tokio-rs](https://github.com/tokio-rs/tokio)
+
+#### Dashmap
+
+Blazingly fast concurrent map in Rust.
+
+Link: [dashmap](https://github.com/xacrimon/dashmap)
+
+#### Raft-rs
+
+Raft distributed consensus algorithm implemented in Rust. I have learn a lot from this project and etcd-raft, thanks!
+
+Link: [raft-rs](https://github.com/tikv/raft-rs)
+
+#### Tarpc (optional)
+
+tarpc is an RPC framework for rust with a focus on ease of use. Defining a service can be done in just a few lines of code, and most of the boilerplate of writing a server is taken care of for you.
+
+Link: [tarpc](https://github.com/google/tarpc)
+
+#### Prost
+
+`prost` is a [Protocol Buffers](https://developers.google.com/protocol-buffers/) implementation for the [Rust Language](https://www.rust-lang.org/). `prost` generates simple, idiomatic Rust code from `proto2` and `proto3` files.
+
+Link: [prost](https://github.com/tokio-rs/prost)
+
+#### Serde
+
+Serde is a framework for \*ser\*ializing and \*de\*serializing Rust data structures efficiently and generically.
+
+Link: [serde](https://github.com/serde-rs/serde)
+
+#### Slog
+
+`slog` is an ecosystem of reusable components for structured, extensible, composable and contextual logging for [Rust](http://rust-lang.org/).
+
+Link: [slog](https://github.com/slog-rs/slog)
+
+#### Sysinfo (used in multi only)
+
+`sysinfo` is a crate used to get a system's information.
+
+Link: [sysinfo](https://github.com/GuillaumeGomez/sysinfo)
+
+## License
+
+This project is licensed under the [MIT license](./LICENSE)

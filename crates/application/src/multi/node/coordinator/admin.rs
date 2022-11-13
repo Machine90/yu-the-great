@@ -307,7 +307,8 @@ impl<S: GroupStorage + Clone> NodeCoordinator<S> {
             }
         }
         if success {
-            split_tx.commit().await;
+            let events = split_tx.commit().await;
+            self.balancer.notify(events);
         } else {
             split_tx.rollback().await;
         }
@@ -327,7 +328,8 @@ impl<S: GroupStorage + Clone> NodeCoordinator<S> {
             }
         }
         if success {
-            compact_tx.commit().await;
+            let events = compact_tx.commit().await;
+            self.balancer.notify(events);
         } else {
             compact_tx.rollback().await;
         }
@@ -339,6 +341,7 @@ impl<S: GroupStorage + Clone> NodeCoordinator<S> {
     /// * propose confchange `[Add(transfee), Remove(this node)]` to group.
     async fn handle_transfer(&self, transfers: Vec<Transfer>) {
         let this_node = self.node_id();
+        let mut events = Vec::with_capacity(transfers.len());
         for Transfer { group, transfee } in transfers {
             let inheritor = self._select_inheritor(group);
             if inheritor.is_none() || transfee.is_none() {
@@ -353,11 +356,13 @@ impl<S: GroupStorage + Clone> NodeCoordinator<S> {
                 transfee
             ).await;
             if transfered.is_ok() {
-                transfer_tx.commit().await;
+                let mut notification = transfer_tx.commit().await;
+                events.append(&mut notification);
             } else {
                 transfer_tx.rollback().await;
             }
         }
+        self.balancer.notify(events);
     }
 
     fn _select_inheritor(&self, group: GroupID) -> Option<NodeID> {

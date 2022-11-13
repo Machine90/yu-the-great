@@ -10,6 +10,7 @@ use crate::peer::facade::local::LocalPeer;
 use crate::vendor::prelude::*;
 use crate::{engine::sched::scheduler::Scheduler, storage::group_storage::GroupStorage};
 use common::protocol::GroupID;
+use components::mailbox::RaftEndpoint;
 use components::torrent::dams::Terminate;
 use std::{ops::Deref, sync::Arc};
 
@@ -25,6 +26,12 @@ impl<S: GroupStorage> Node<S> {
     #[inline]
     pub fn coordinator(&self) -> Option<Arc<NodeCoordinator<S>>> {
         self.coordinator.clone()
+    }
+
+    /// Get the endpoint information of this node.
+    #[inline]
+    pub fn endpoint(&self) -> &RaftEndpoint {
+        &self.coprocessor_driver().endpoint
     }
 
     #[inline]

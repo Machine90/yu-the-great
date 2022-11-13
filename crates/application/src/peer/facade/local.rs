@@ -51,6 +51,11 @@ impl LocalPeer {
     }
 
     #[inline]
+    pub fn endpoint(&self) -> &RaftEndpoint {
+        self.peer.endpoint()
+    }
+
+    #[inline]
     async fn _before_read(&self, read_request_ctx: &mut ReadContext) -> RaftResult<EvaluateRead> {
         self.coprocessor_driver
             .before_read_index(read_request_ctx)
@@ -77,7 +82,7 @@ impl AbstractPeer for LocalPeer {
 
     #[inline]
     fn get_endpoint(&self) -> std::io::Result<RaftEndpoint> {
-        Ok(self.peer.endpoint().clone())
+        Ok(self.endpoint().clone())
     }
 
     async fn propose_async(&self, data: Vec<u8>) -> Yusult<Proposal> {
