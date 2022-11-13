@@ -6,13 +6,13 @@ use crate::{
     mailbox::{RaftEndpoint},
     peer::{
         facade::{AbstractPeer, Facade},
-        process::{proposal::Proposal, tick::Ticked},
+        process::{tick::Ticked},
         Peer, PeerID,
     },
     RaftMsg, RaftResult, coprocessor::read_index_ctx::{ReadContext, EvaluateRead}
 };
 use crate::async_trait;
-use common::{protos::raft_log_proto::Snapshot, protocol::read_state::ReadState};
+use common::{protos::raft_log_proto::Snapshot, protocol::{read_state::ReadState, proposal::Proposal}};
 use consensus::{prelude::{raft_role::RaftRole}, raft_node::SnapshotStatus};
 use crate::protos::{prelude::BatchConfChange, raft_payload_proto::StatusProto};
 use crate::vendor::prelude::*;
@@ -51,6 +51,11 @@ impl LocalPeer {
     }
 
     #[inline]
+    pub fn endpoint(&self) -> &RaftEndpoint {
+        self.peer.endpoint()
+    }
+
+    #[inline]
     async fn _before_read(&self, read_request_ctx: &mut ReadContext) -> RaftResult<EvaluateRead> {
         self.coprocessor_driver
             .before_read_index(read_request_ctx)
@@ -77,7 +82,7 @@ impl AbstractPeer for LocalPeer {
 
     #[inline]
     fn get_endpoint(&self) -> std::io::Result<RaftEndpoint> {
-        Ok(self.peer.endpoint().clone())
+        Ok(self.endpoint().clone())
     }
 
     async fn propose_async(&self, data: Vec<u8>) -> Yusult<Proposal> {

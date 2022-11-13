@@ -1,9 +1,3 @@
-//!
-//! Election process of candidate and follower.
-//! ### Diagram:
-//! ```mermaid
-//! todo!()
-//! ```
 
 use components::vendor::debug;
 use consensus::prelude::*;

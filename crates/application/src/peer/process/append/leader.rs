@@ -3,7 +3,8 @@ use std::time::{Duration, Instant};
 
 use crate::mailbox::api::MailBox;
 use crate::peer::{pipeline::async_pipe::Pipelines};
-use crate::peer::{Core, Peer, process::{proposal::Proposal, msgs}};
+use crate::peer::{Core, Peer, process::{msgs}};
+use common::protocol::proposal::Proposal;
 use common::protos::raft_log_proto::Snapshot;
 use consensus::raft_node::SnapshotStatus;
 use consensus::raft_node::raft_functions::RaftFunctions;
@@ -74,10 +75,6 @@ impl Peer {
     /// * **Phase 2**: Leader and majority Follower has committed log entry.
     /// ### Returns
     /// * **Ok**: true if log entry has been committed after broadcast.
-    /// The process of append
-    /// ```mermaid
-    /// // todo
-    /// ```
     pub(crate) async fn broadcast_append(&self, append: Vec<RaftMsg>, timeout_dur: Duration) -> RaftResult<Proposal> {
         let total = append.len();
         let mut pipelines = Pipelines::new(self.mailbox.clone());

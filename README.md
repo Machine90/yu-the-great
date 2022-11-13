@@ -1,24 +1,16 @@
 <img src="./document/imgs/logo.png" width="300"/>
 
-## [Architecture](document/design.md) |  [Multi Raft](document/multi/multi_raft.md) | [Configuration](document/configuration.md)
+## [Architecture](document/design.md) | [Examples](https://github.com/Machine90/yu-examples) | [Configuration](document/configuration.md) | [Multi Raft](document/multi/multi_raft.md) 
 
 **Yu The Great** is an open-source distributed consensus library which implemented by Rust based on the raft algorithm, can help developers to write some distributed products easily, for example distributed key-value store, distributed message queue and some tools like distributed lock that can be embed in your project.
 
 Unlike others distributed project, Yu is not a standalone server program, so that developers don't need to deploy it separately, just integrate it with your project. Yu is inspired by some great distributed systems from HBase, TiKV and etcd, is aimed to make it easily to develop scalable distributed project.
 
-About name, Yu the great, also known as  Da yu, hero of China in ancient times who tamed the floods and protected residents from disaster, he drained and dredged the water and diverted the flood into the sea...  We hope this project can help others to tame the network data flow same as Yu who tamed the floods.
+About project name, "Yu the great", also known as  Da yu, hero of China in ancient times who tamed the floods and protected residents from disaster, he drained and dredged the water and diverted the flood into the sea...  We hope this project can help others to tame the network data flow same as Yu who tamed the floods.
+
+The logo is designed by my wife Kelly, thanks a lot!
 
 ## Quick Start
-
-### Concepts
-
-Let's make clear some important concepts before using this library:
-
-* Node: the Node we mentioned here could be a server, a node can maintain more than 1 group.
-* Group: a raft group, includes some voters (consists of different nodes), each group has it's own id, key range and voters. 
-* Peer: one replica of a group, installed on the node.
-* Propose: "write" behavior of the raft group, content of propose is defined to binary type, which can be designed to anything, for example "binlog".
-* ReadIndex: "read" behavior of the raft group. Yu support client read proposal data from each group, and guarantee this data has been committed.
 
 ### Dependency
 
@@ -26,42 +18,9 @@ We haven't deploy it to any repo like crate.io (in plan) now, so if you have int
 
 ```
 [dependencies]
+# full features: ["multi", "single", "rpc"]
 yu-the-great = { git = "https://github.com/Machine90/yu-the-great.git", default-features = false }
 ```
-
-### Features
-
-* **Default feature**: "application", which implement basic process of Raft, with some core modules: 
-
-  * Raft's log memory store implementation.
-
-  * Process: includes the basic process of raft, based on raft-rs implementation.
-
-  * Coprocessor: help to handle raft's processes, for example "commit", "read_index", state changes etc, then send all these events to "Listener".
-
-  * Listener: we define several listeners, a listener is the basic unit of architecture which used to aware changes and handle "read", "write" event, and  also help to send snapshot.    
-
-  * Scheduler, which used to do some chore jobs, for example tick raft group.
-
-  * Components, include the trait definition of:
-
-    * Mailbox: used to transfer messages between voters in each group. 
-    * Storage: used to persist raft log.
-
-    the implementations of these traits could be developed in another project.
-
-* **single**: we provide a single raft group solution in this feature, include:
-
-  * A schedule used to tick single raft group period.
-  *  A `Builder` for single raft group, help to create Node quickly.
-
-* **multi**: This feature is still developing now. In this feature, a node can manage multiple groups, and each group has it's own "partition", all log entry's binary key in this partition's will be routed to this group.
-
-  * NodeManager: Manage all groups of this node, help to find the group by id.
-  * Coordinator: The coordinator of this node is used to help to do some balance job for example, once a group growth too large, then we may consider split this group, at that time, developer can use coordinator to propose the `Split` command to each voter of this group to split at local, coordinator support these operations: Split, Transfer, Merge.
-  * BatchTicker: This schedule used to tick all groups on this node period, and send heartbeat in batch.
-
-* **rpc**: RPC implementation of mailbox, powered by Tarpc
 
 ### Code samples
 
@@ -70,7 +29,7 @@ yu-the-great = { git = "https://github.com/Machine90/yu-the-great.git", default-
 ```rust
 // features = ["single", "rpc"]
 use std::{io::Result};
-use yu_boot::yu_the_great as yu;
+use yu_the_great as yu;
 use yu::{
     common::protocol::{read_state::ReadState, NodeID},
     coprocessor::listener::{proposal::RaftListener, Acl, RaftContext},
@@ -119,6 +78,7 @@ impl RaftListener for HelloWorld {
     }
 }
 
+// simulate 3 Node with RPC transport
 fn main() {
     let group = GroupProto {
         id: 1, // group 1
@@ -173,3 +133,115 @@ See: https://github.com/Machine90/yu-examples
 
 
 
+### Environment
+Install Rust: [Rust download](https://www.rust-lang.org/tools/install)
+
+
+| software | version |
+| -------- | ------- |
+| cargo    | 1.65.0  |
+| rustup   | 1.25.1  |
+|          |         |
+
+
+
+### Concepts
+
+Let's explain some important concepts of this library:
+
+* Node: the Node we mentioned here could be a server, a node can maintain more than 1 group.
+* Group: a raft group, includes some voters (consists of different nodes), each group has it's own id, key range and voters. 
+* Peer: one replica of a group, installed on the node.
+* Propose: "write" behavior of the raft group, content of propose is defined to binary type, which can be designed to anything, for example "binlog".
+* ReadIndex: "read" behavior of the raft group. Yu support client read proposal data from each group, and guarantee this data has been committed.
+* Election: Any voter can campaign leader, Yu support broadcast vote or pre-vote.
+* Tick: Both leader and follower attempt to make heartbeat or election after some tick. 
+
+### Features
+
+* **Default feature**: Which implement basic process of Raft, with some core modules: 
+
+  * Raft's log memory store implementation.
+
+  * Process: includes the basic process of raft, based on raft-rs implementation.
+
+  * Coprocessor: help to handle raft's processes, for example "commit", "read_index", state changes etc, then send all these events to "Listener".
+
+  * Listener: we define several listeners, a listener is the basic unit of architecture which used to aware changes and handle "read", "write" event, and  also help to send snapshot.    
+
+  * Scheduler, which used to do some chore jobs, for example tick raft group.
+
+  * Components, include the trait definition of:
+
+    * Mailbox: used to transfer messages between voters in each group. 
+    * Storage: used to persist raft log.
+
+    the implementations of these traits could be developed in another project.
+
+* **single**: we provide a single raft group solution in this feature, include:
+
+  * A schedule used to tick single raft group period.
+  *  A `Builder` for single raft group, help to create Node quickly.
+
+* **multi**: This feature is still developing now. In this feature, a node can manage multiple groups, and each group has it's own "partition", all log entry's binary key in this partition's will be routed to this group.
+
+  * NodeManager: Manage all groups of this node, help to find the group by id.
+  * Coordinator: The coordinator of this node is used to help to do some balance job for example, once a group growth too large, then we may consider split this group, at that time, developer can use coordinator to propose the `Split` command to each voter of this group to split at local, coordinator support these operations: Split, Transfer, Merge.
+  * BatchTicker: This schedule used to tick all groups on this node period, and send heartbeat in batch.
+
+* **rpc**: RPC implementation of mailbox, powered by Tarpc
+
+
+
+## Stack
+
+#### Tokio
+A runtime for writing reliable, asynchronous, and slim applications with the Rust programming language.
+
+Link: [tokio-rs](https://github.com/tokio-rs/tokio)
+
+#### Dashmap
+
+Blazingly fast concurrent map in Rust.
+
+Link: [dashmap](https://github.com/xacrimon/dashmap)
+
+#### Raft-rs
+
+Raft distributed consensus algorithm implemented in Rust. I have learn a lot from this project and etcd-raft, thanks!
+
+Link: [raft-rs](https://github.com/tikv/raft-rs)
+
+#### Tarpc (optional)
+
+tarpc is an RPC framework for rust with a focus on ease of use. Defining a service can be done in just a few lines of code, and most of the boilerplate of writing a server is taken care of for you.
+
+Link: [tarpc](https://github.com/google/tarpc)
+
+#### Prost
+
+`prost` is a [Protocol Buffers](https://developers.google.com/protocol-buffers/) implementation for the [Rust Language](https://www.rust-lang.org/). `prost` generates simple, idiomatic Rust code from `proto2` and `proto3` files.
+
+Link: [prost](https://github.com/tokio-rs/prost)
+
+#### Serde
+
+Serde is a framework for \*ser\*ializing and \*de\*serializing Rust data structures efficiently and generically.
+
+Link: [serde](https://github.com/serde-rs/serde)
+
+#### Slog
+
+`slog` is an ecosystem of reusable components for structured, extensible, composable and contextual logging for [Rust](http://rust-lang.org/).
+
+Link: [slog](https://github.com/slog-rs/slog)
+
+#### Sysinfo (used in multi only)
+
+`sysinfo` is a crate used to get a system's information.
+
+Link: [sysinfo](https://github.com/GuillaumeGomez/sysinfo)
+
+## License
+
+This project is licensed under the [MIT license](./LICENSE)

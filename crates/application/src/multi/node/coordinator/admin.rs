@@ -1,12 +1,12 @@
 use super::NodeCoordinator;
 use crate::{
     coprocessor::listener::{admin::AdminListener, Acl, RaftContext},
-    peer::{facade::AbstractPeer, process::proposal::Proposal},
+    peer::{facade::{AbstractPeer, local::LocalPeer}},
     storage::group_storage::GroupStorage,
 };
 use common::{
     errors::application::{Yusult, YuError},
-    protocol::{GroupID, NodeID},
+    protocol::{GroupID, NodeID, proposal::Proposal},
     protos::{
         multi_proto::{Assignments, BatchAssignment, Merge, Split, Transfer},
         raft_group_proto::GroupProto,
@@ -18,6 +18,7 @@ use components::{
     mailbox::multi::balance::SplitPartition,
     torrent::{partitions::partition::Partition},
 };
+use consensus::raft::DUMMY_ID;
 use std::{
     collections::{HashMap, HashSet},
     hash::Hash
@@ -83,7 +84,19 @@ impl Divided {
 }
 
 impl<S: GroupStorage + Clone> NodeCoordinator<S> {
-    /// Processing assignments that received from federation on this node.
+
+    /// Try to assign specific group on this node.
+    pub async fn maybe_assign_group(&self, group: GroupProto) -> Yusult<()> {
+        let group_id = group.id;
+        if self.manager.peers.contains_key(&group_id) {
+            return Err(YuError::BalanceError(
+                format!("group-{group_id} is already assigned on this node").into()
+            ));
+        }
+        self.manager.try_assign_group(group).await
+    }
+
+    /// Processing assignments that assigned on this node.
     /// The assignments will be propose to other effected voters.
     pub async fn process_assignments(&self, assignments: Assignments) {
         if assignments.is_empty() {
@@ -139,28 +152,60 @@ impl<S: GroupStorage + Clone> NodeCoordinator<S> {
                 confstate: Some(voters.members.into()),
                 assignments: Some(distinct.assignments),
             };
-            let proposal = self._propose_assigments(groups, batch).await;
+            let proposal = self._propose_assignments(groups, batch).await;
             if let Err(e) = proposal {
-                crate::error!("failed to propose assignments, see: {:?}", e);
+                crate::error!("{:?}", e);
             }
         }
     }
 
-    async fn _propose_assigments(&self, groups: Vec<GroupID>, mut batch: BatchAssignment) -> Yusult<()> {
-        let propose_group = groups[0];
-        let peer = self.manager.find_peer(propose_group)?;
-        Self::_pre_propose(propose_group, &mut batch);
+    /// Try to find an availble peer in given groups to propose the batch assignments
+    /// to target node.
+    async fn _propose_assignments(&self, groups: Vec<GroupID>, mut batch: BatchAssignment) -> Yusult<()> {
+        let avail = self.find_avail_propose_group(groups).await;
+        if avail.is_none() {
+            return Err(YuError::BalanceError(
+                "not available peer to propose assignments, please try it later".into()
+            ));
+        }
+        let (proposer, peer) = avail.unwrap();
+        Self::_pre_propose(proposer, &mut batch);
         let cmd = bincode::serialize(&batch);
-        let proposal = peer.propose_cmd_async(cmd.unwrap()).await;
-        if let Ok(proposal) = proposal {
-            match proposal {
-                Proposal::Commit(_) => {
-                    return Ok(())
-                },
-                _ => ()
+        let proposal = peer.propose_cmd_async(cmd.unwrap()).await?;
+        match proposal {
+            Proposal::Commit(_) => {
+                Ok(())
+            },
+            e => {
+                Err(YuError::BalanceError(
+                    format!("failed to propose assignments because: {:?}", e).into()
+                ))
             }
         }
-        Err(YuError::BalanceError)
+    }
+
+    /// Find a recommend peer at local to propose the assignments. Prefer to
+    /// choose a leader peer, if not leader present, then choose the first 
+    /// peer which has leader, otherwise there has not available peer to propose.
+    async fn find_avail_propose_group(&self, groups: Vec<GroupID>) -> Option<(GroupID, LocalPeer)> {
+        let mut recommend = None;
+        let this_node = self.node_id();
+        for group_id in groups {
+            if let Ok(peer) = self.manager.find_peer(group_id) {
+                let leader = peer.leader_id().await;
+                if leader == DUMMY_ID {
+                    continue;
+                }
+                if recommend.is_none() {
+                    recommend = Some((group_id, peer));
+                } else if leader == this_node {
+                    // update proposer to leader peer if present.
+                    recommend = Some((group_id, peer));
+                    break;
+                }
+            }
+        }
+        recommend
     }
 
     fn _pre_propose(proposer: GroupID, batch: &mut BatchAssignment) {
@@ -262,7 +307,8 @@ impl<S: GroupStorage + Clone> NodeCoordinator<S> {
             }
         }
         if success {
-            split_tx.commit().await;
+            let events = split_tx.commit().await;
+            self.balancer.notify(events);
         } else {
             split_tx.rollback().await;
         }
@@ -282,7 +328,8 @@ impl<S: GroupStorage + Clone> NodeCoordinator<S> {
             }
         }
         if success {
-            compact_tx.commit().await;
+            let events = compact_tx.commit().await;
+            self.balancer.notify(events);
         } else {
             compact_tx.rollback().await;
         }
@@ -294,6 +341,7 @@ impl<S: GroupStorage + Clone> NodeCoordinator<S> {
     /// * propose confchange `[Add(transfee), Remove(this node)]` to group.
     async fn handle_transfer(&self, transfers: Vec<Transfer>) {
         let this_node = self.node_id();
+        let mut events = Vec::with_capacity(transfers.len());
         for Transfer { group, transfee } in transfers {
             let inheritor = self._select_inheritor(group);
             if inheritor.is_none() || transfee.is_none() {
@@ -308,11 +356,13 @@ impl<S: GroupStorage + Clone> NodeCoordinator<S> {
                 transfee
             ).await;
             if transfered.is_ok() {
-                transfer_tx.commit().await;
+                let mut notification = transfer_tx.commit().await;
+                events.append(&mut notification);
             } else {
                 transfer_tx.rollback().await;
             }
         }
+        self.balancer.notify(events);
     }
 
     fn _select_inheritor(&self, group: GroupID) -> Option<NodeID> {

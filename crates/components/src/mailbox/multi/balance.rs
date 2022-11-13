@@ -1,6 +1,6 @@
 use super::model::check::CheckGroup;
-use common::protocol::GroupID;
-use std::{collections::VecDeque, io, sync::Arc, time::Duration};
+use common::{protocol::GroupID, vendor::prelude::singleton};
+use std::{sync::Arc, time::Duration, ops::Range};
 use torrent::partitions::{key::Key, partition::Partition};
 
 pub type NodeBalancer = Arc<dyn BalanceHelper + Send + Sync + 'static>;
@@ -37,6 +37,9 @@ impl Config {
     }
 }
 
+singleton!(BALANCE_CONF, Config);
+
+#[derive(Debug, Clone)]
 pub struct SplitPartition {
     pub new_group: GroupID,
     pub ori_partition: Partition<GroupID>,
@@ -56,25 +59,56 @@ impl SplitPartition {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum Notification {
+    ScaleUp {
+        key_range: Range<Key>
+    },
+    ScaleDown { 
+        key_range: Range<Key>
+    },
+    ChangeGroup {
+        to: GroupID
+    },
+    ClearRange {
+        group: GroupID,
+        key_range: Range<Key>,
+    }
+}
+
 /// Balance helper of current node, used to collect usages of each group
 /// on this node, then help to find split_key of each group which need split.
 #[allow(unused)]
 pub trait BalanceHelper {
     /// Get the reference of balancer's configuration.
-    fn conf(&self) -> Config;
+    fn conf(&self) -> &Config {
+        BALANCE_CONF.get(|| {
+            Config::default()
+        })
+    }
 
     /// Group Usage, use to check if group is too large to split
     /// or too small to compaction.
     fn groups_usage(&self, targets: &mut Vec<CheckGroup>);
 
-    /// Get the split key of given group, this often called
-    /// when after `check_split` is true.
+    /// Get the split key of given groups
     fn split_keys(&self, should_splits: &mut Vec<SplitPartition>);
 
-    /// Notify to clear key-value in ranges of this node.
+    /// Notify with balanced result to helper, the notification
+    /// should be handled, for example received `ClearRange`, 
+    /// then effected groups should do clear job themselves.
+    /// 
+    /// If want to run this job in async, then feel free to use
+    /// `runtime::spawn()` `runtime::blocking()`. This method 
+    /// is invoked on a tokio Runtime.
+    /// 
     /// ### Params
-    /// **ranges**: vector<(peer id, from key, to key)>
-    fn clear_partitions(&self, ranges: VecDeque<(GroupID, Key, Key)>) -> io::Result<()>;
+    /// **events**: vector<(peer id, notification)>
+    /// ### Noting that
+    /// Assume this operation is always success, developer
+    /// should handle all unexpected cases themselves, for example
+    /// save events in WAL.
+    fn notify(&self, events: Vec<(GroupID, Notification)>);
 }
 
 #[derive(Debug, Clone, Copy)]

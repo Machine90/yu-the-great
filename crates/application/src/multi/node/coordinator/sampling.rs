@@ -61,6 +61,8 @@ impl<S: GroupStorage> NodeCoordinator<S> {
         if !should_report {
             return;
         }
+        // TODO
+        
     }
 
     /// Find all adjacent groups (have the same voters) that meet conditions,

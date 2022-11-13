@@ -1,9 +1,10 @@
 //! It's just a Demo or prototype, replace this implementation later
 pub(super) mod assign_group;
 
+use components::mailbox::multi::balance::Notification;
 use components::storage::group_storage::GroupStorage;
-use components::torrent::partitions::{index::mvcc::version::Version, key::Key};
-use std::collections::{HashSet, VecDeque};
+use components::torrent::partitions::{index::mvcc::version::Version};
+use std::collections::{HashSet};
 
 use super::peer_assigner::{Moditication, Moditications, PeerAssigner};
 use super::NodeManager;
@@ -29,7 +30,9 @@ impl<S: GroupStorage + Clone> Transaction<S> {
         }
     }
 
-    pub async fn commit(self) -> VecDeque<(GroupID, Key, Key)> {
+    /// Commit transaction, maybe some groups should 
+    /// be compacted after commit.
+    pub async fn commit(self) -> Vec<(GroupID, Notification)> {
         let Self {
             version,
             peers,
@@ -39,7 +42,7 @@ impl<S: GroupStorage + Clone> Transaction<S> {
         } = self;
 
         let mut all_voters = HashSet::new();
-        let mut clear_partitions = VecDeque::new();
+        let mut notification = Vec::new();
         for (group, changes) in modification.edits {
             for change in changes {
                 match change {
@@ -51,25 +54,40 @@ impl<S: GroupStorage + Clone> Transaction<S> {
                     Moditication::ScaleDown { new_from } => {
                         if let Some(peer) = peers.get(&group) {
                             peer.set_from_key(new_from);
+                            let (from, to) = peer.group_range();
+                            let noti = Notification::ScaleDown {
+                                key_range: from..to
+                            };
+                            notification.push((group, noti));
                         }
                     }
                     Moditication::ScaleUp { new_from, new_to } => {
                         if let Some(peer) = peers.get(&group) {
-                            peer.update_key_range(new_from..new_to);
+                            let range = new_from..new_to;
+                            let noti = Notification::ScaleUp {
+                                key_range: range.clone()
+                            };
+                            notification.push((group, noti));
+                            peer.update_key_range(range);
                         }
                     }
                     Moditication::Remove => {
                         if let Some((_, peer)) = peers.remove(&group) {
                             let (from, to) = peer.group_range();
-                            clear_partitions.push_back((group, from, to));
+                            let noti = Notification::ClearRange { 
+                                group, key_range: from..to 
+                            };
+                            notification.push((group, noti));
                             peer.clear().await;
                         }
                     }
-                    Moditication::MergeTo(_merged_group) => {
+                    Moditication::MergeTo(merged_group) => {
                         if let Some((_, peer)) = peers.remove(&group) {
                             // TODO list: 
                             // 1. notify to business
                             // 2. handle unapply entries of these peers.
+                            let noti = Notification::ChangeGroup { to: merged_group };
+                            notification.push((group, noti));
                             peer.clear().await;
                         }
                     }
@@ -82,7 +100,7 @@ impl<S: GroupStorage + Clone> Transaction<S> {
             // then establish connect to added peers after commit.
             peer_assigner.establish_connections(all_voters);
         }
-        clear_partitions
+        notification
     }
 
     pub async fn rollback(self) {

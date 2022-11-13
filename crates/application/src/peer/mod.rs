@@ -32,7 +32,15 @@ use common::{protos::{
 }, vendor::prelude::lock::RwLock};
 use components::{torrent::{partitions::{key::Key, partition::Partition}}, monitor::Monitor};
 use consensus::{raft_node::RaftNode};
-use std::{fmt::Debug, ops::{Deref, Range}, sync::Arc};
+
+use std::{
+    fmt::Debug, 
+    ops::{Deref},
+    sync::Arc
+};
+
+#[cfg(feature = "multi")]
+use std::ops::Range;
 
 /// Raw node with `GroupStorage` trait.
 pub type RaftPeer = RaftNode<Box<dyn GroupStorage>>;
@@ -154,11 +162,13 @@ impl Core {
         range
     }
 
+    #[cfg(feature = "multi")]
     #[inline]
     pub(crate) fn set_from_key(&self, from: Key) {
         *&mut self.partition.write().from_key = from;
     }
 
+    #[cfg(feature = "multi")]
     #[inline]
     pub(crate) fn update_key_range(&self, range: Range<Key>) {
         let Range { start, end } = range;

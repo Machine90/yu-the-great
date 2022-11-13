@@ -62,7 +62,9 @@ impl<S: GroupStorage + Clone> Transaction<S> {
         self.trace("prepare split group");
         // make sure origin group is exists on this node.
         if !self.peers.contains_key(&origin_group) {
-            return Err(YuError::BalanceError);
+            return Err(YuError::BalanceError(
+                format!("group-{origin_group} is not exist on this node").into()
+            ));
         }
         let new = Partition::new_and_validate(
             Key::left(&left.from_key),
@@ -72,7 +74,9 @@ impl<S: GroupStorage + Clone> Transaction<S> {
 
         if !self.version.maybe_add(new.clone(), true) {
             // maybe failure when other version is editing, or add an unexpected partition
-            return Err(YuError::BalanceError);
+            return Err(YuError::BalanceError(
+                format!("unable to split group-{} to {}, make sure it has valid key-range, maybe other txns edit it in concurrency", origin_group, left.id).into()
+            ));
         }
 
         // otherwise create a new raft peer for this node.
@@ -96,8 +100,10 @@ impl<S: GroupStorage + Clone> Transaction<S> {
         self.trace("prepare assign group");
         let node_id = self.peer_assigner.node_id();
         if !group.is_voter(node_id) {
-            // TODO: should not assign on this node.
-            return Err(YuError::BalanceError);
+            // should not assign on this node.
+            return Err(YuError::BalanceError(
+                format!("node-{node_id} is not a voter of group-{}", group.id).into()
+            ));
         }
         let GroupProto {
             id,
@@ -108,7 +114,7 @@ impl<S: GroupStorage + Clone> Transaction<S> {
         } = &group;
         if confstate.is_none() {
             crate::warn!("conf_state of group should never be None when assign");
-            return Err(YuError::BalanceError);
+            return Err(YuError::BalanceError("confstate should not be None".into()));
         }
         
         let group_id = *id;
@@ -122,7 +128,7 @@ impl<S: GroupStorage + Clone> Transaction<S> {
 
         if !self.version.maybe_add(new, true) {
             // maybe failure when other version is editing, or add an unexpected partition
-            return Err(YuError::BalanceError);
+            return Err(YuError::BalanceError(format!("unable to add group: {} to partitions", id).into()));
         }
 
         // try to assign the peer of group.
@@ -138,11 +144,17 @@ impl<S: GroupStorage + Clone> Transaction<S> {
 
     pub async fn compaction(&mut self, pieces: Vec<GroupID>, new_group: GroupID) -> Yusult<()> {
         if pieces.len() < 2 {
-            return Err(YuError::BalanceError);
+            return Err(YuError::BalanceError(
+                "number of groups that prepare to merge should be at least 2".into()
+            ));
         }
         let mut to_compact = Vec::with_capacity(pieces.len());
         for group in pieces {
-            let peer = self.peers.get(&group).ok_or(YuError::BalanceError)?;
+            let peer = self.peers
+                .get(&group)
+                .ok_or(YuError::BalanceError(
+                    format!("group-{group} is not exist on this node").into()
+                ))?;
             let (from, to) = peer.group_range();
             to_compact.push(Partition::from_range(from..to, group));
         }
@@ -183,7 +195,11 @@ impl<S: GroupStorage + Clone> Transaction<S> {
             group_id, src, transfee.id
         ).as_str());
 
-        let peer = self.peers.get(&group_id).ok_or(YuError::BalanceError)?;
+        let peer = self.peers
+            .get(&group_id)
+            .ok_or(YuError::BalanceError(
+                format!("group-{group_id} is not exist on this node").into()
+            ))?;
 
         let (clear_from, clear_to) = peer.group_range();
 
@@ -263,13 +279,17 @@ mod test {
             )?;
             if !self.version.maybe_add(new.clone(), true) {
                 // maybe failure when other version is editing, or add an unexpected partition
-                return Err(YuError::BalanceError);
+                return Err(YuError::BalanceError(
+                    format!("unable to split group-{}, make sure it has valid key-range, maybe other txns edit it in concurrency", left.id).into()
+                ));
             }
             if !left.is_voter(this_node) {
                 // this node is not in split group, indicate that should
                 // remove group from this node, but keep the divided one.
                 if !self.version.try_remove(&new, true)? {
-                    return Err(YuError::BalanceError);
+                    return Err(YuError::BalanceError(
+                        format!("unable to remove group-{} from this node when splitting, maybe other txns edit it in concurrency", left.id).into()
+                    ));
                 }
             }
             Ok(())
