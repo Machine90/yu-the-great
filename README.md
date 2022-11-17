@@ -37,7 +37,7 @@ use yu::{
     protos::{raft_group_proto::GroupProto, raft_log_proto::Entry},
     solutions::builder::single::{provider, Builder},
     solutions::rpc::StubConfig,
-    torrent::{runtime, topology::node::Node},
+    torrent::{topology::node::Node},
     RaftRole,
 };
 
@@ -99,7 +99,7 @@ fn main() {
         // node id must be assigned
         conf.id = node_id;
         let node = Builder::new(group.clone(), conf)
-            .with_storage(|group| provider::mem_store(group)) // save raft's log in memory
+            .with_raftlog_store(|group| provider::mem_raftlog_store(group)) // save raft's log in memory
             .use_default() // default to tick it and use RPC transport.
             .add_raft_listener(HelloWorld(node_id)) // add this listener to coprocessor
             .build() // ready
@@ -115,7 +115,7 @@ fn main() {
     }
     // try to election and generate a leader for group.
     for peer in peers.iter() {
-        if let Ok(RaftRole::Leader) = runtime::blocking(peer.election()) {
+        if let Ok(RaftRole::Leader) = peer.election() {
             break;
         }
     }
