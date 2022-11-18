@@ -7,7 +7,7 @@
 
 #### Multi Groups
 
-![arch](./imgs/phy-multi.png)
+![arch](./imgs/multi-phy.png)
 
 ### Logical
 
