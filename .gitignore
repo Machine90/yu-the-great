@@ -4,3 +4,4 @@ Cargo.lock
 /assets
 /log
 crates/protos/src/*_proto.rs
+.DS_Store

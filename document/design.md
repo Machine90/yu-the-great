@@ -5,6 +5,10 @@
 
 ![arch](./imgs/phy.png)
 
+#### Multi Groups
+
+![arch](./imgs/phy-multi.png)
+
 ### Logical
 
 #### Single
