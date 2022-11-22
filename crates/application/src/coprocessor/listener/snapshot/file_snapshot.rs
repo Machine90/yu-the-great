@@ -1,10 +1,10 @@
 use crate::{
     coprocessor::listener::{Acl, RaftContext},
-    info,
+    debug,
     tokio::task::JoinHandle,
     torrent::runtime,
 };
-use std::{fs::File, io::Result, path::PathBuf, sync::Arc};
+use std::{fs::File, io::{Result, Error, ErrorKind}, path::PathBuf, sync::Arc};
 
 use common::protos::raft_log_proto::{Snapshot, SnapshotMetadata};
 use components::{
@@ -29,6 +29,14 @@ pub trait BackupSender: Send + Sync {
     fn prepare_backups(&self, ctx: &RaftContext, snap_metadata: &SnapshotMetadata) -> PathBuf;
 }
 
+/// When decide to use `FileSnapshot`, you just need to implement the `BackupSender` and set 
+/// to it. The `FileSnapshot` will help you to do really send job with `fast_cp` tool.
+/// 
+/// This often used in some file backups transferring, for example if we save the entries in rocksdb, 
+/// when other followers request for backups, `BackupSender` should help to prepare backups by 
+/// writing applied entries to a "sst_file" via "sst_file_writer", so that we can send it to 
+/// this follower.
+///
 pub struct FileSnapshot {
     sender: Arc<dyn BackupSender>,
     receiver: Arc<dyn ReceiveHandler<File>>,
@@ -40,6 +48,8 @@ pub struct FileSnapshot {
 }
 
 impl FileSnapshot {
+
+    /// Create FileSnapshot with default configure.
     pub fn new<S, R>(node_id: u32, sender: S, receiver: R) -> Self
     where
         S: BackupSender + 'static,
@@ -47,14 +57,28 @@ impl FileSnapshot {
     {
         // session id would not save too long
         let id_generator =
-            Snowflake::from_timestamp(Policy::N20(node_id, true), 1659667909807).unwrap();
+            Snowflake::from_timestamp(Policy::N20(node_id, true), 1668668356910).unwrap();
         let id_generator = Arc::new(RwLock::new(id_generator));
+        let conf = Config::default();
         Self::from_exists(
             id_generator,
             Arc::new(sender),
             Arc::new(receiver),
-            Config::default(),
+            conf,
         )
+    }
+
+    pub fn default_id_worker(
+        node_id: u32,
+        sender: Arc<dyn BackupSender + 'static>,
+        receiver: Arc<dyn ReceiveHandler<File> + 'static>,
+        conf: Config,
+    ) -> Self {
+        let id_generator =
+            Snowflake::from_timestamp(Policy::N20(node_id, true), 1659667909807).unwrap();
+        let id_generator = Arc::new(RwLock::new(id_generator));
+
+        Self::from_exists(id_generator, sender, receiver, conf)
     }
 
     pub fn from_exists(
@@ -77,6 +101,17 @@ impl FileSnapshot {
     pub async fn gen_id(&self) -> u64 {
         self.id_generator.write().await.next_id()
     }
+
+    #[inline]
+    fn _try_acquire(&self) -> Result<()> {
+        if self.backups_to_send.len() >= self.conf.max_allowed_inflight_transferring as usize {
+            return Err(Error::new(
+                ErrorKind::WouldBlock,
+                "too many inflight transferring! please wait."
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl Acl for FileSnapshot {}
@@ -93,6 +128,8 @@ impl SnapshotListener for FileSnapshot {
         ctx: &RaftContext,
         snapshot: &mut Snapshot,
     ) -> Result<()> {
+        self._try_acquire()?;
+
         let path = self.sender.prepare_backups(ctx, snapshot.get_metadata());
         let mut backups = CpFile::new();
         backups
@@ -110,7 +147,7 @@ impl SnapshotListener for FileSnapshot {
         let backups = self.backups_to_send.remove(&ack.id);
         if let Some((_, mut backups)) = backups {
             if ack.items.is_empty() {
-                info!("not backups prepare to send");
+                debug!("not backups prepare to send");
                 return Ok(());
             }
             backups.apply(ack)?;
@@ -118,7 +155,7 @@ impl SnapshotListener for FileSnapshot {
             runtime::spawn(async move {
                 // `cp` contained all backup items those prepared
                 let sent = backups.flush_async().await;
-                info!("send backups {:?}", sent);
+                debug!("send backups {:?}", sent);
             });
         }
         Ok(())
@@ -132,19 +169,18 @@ impl SnapshotListener for FileSnapshot {
         let receiver = self.receiver.clone();
         let mut recv_progress = Receiver::from_handler(receiver);
 
-        // TODO: replace with configured value
         recv_progress.set_config(RecvConfig {
-            bind_host: "127.0.0.1".to_owned(),
-            port_range: 20070..20100,
+            bind_host: self.conf.bind_address.clone(),
+            port_range: self.conf.try_ports.clone(),
             ..Default::default()
         });
         recv_progress.accept_mut(&mut session)?;
         snapshot.set_data(&session)?;
 
-        // TODO: maybe nothing attempt to be received after accept session.
+        // maybe nothing attempt to be received after accept session.
         // thus do not spawn any tasks if in this case.
         if session.items.is_empty() {
-            info!("attempt to receive nothing, backups is ready");
+            debug!("nothing to receive from backups");
             return Ok(());
         }
 
@@ -161,7 +197,7 @@ impl SnapshotListener for FileSnapshot {
         let task = self.recv_tasks.remove(&session.id);
         if let Some((_, task)) = task {
             let written = task.await??;
-            crate::debug!("totally success received {:?} bytes backups", written);
+            crate::debug!("total received {:?} bytes backups", written);
         }
         Ok(())
     }
@@ -177,16 +213,23 @@ pub mod tests {
 
     use super::*;
 
-    const TEST_PATH: &str = "C:\\workspace\\raft\\Dayu\\yu-the-great\\assets";
+    fn _snap_dir<P: AsRef<Path>>(child: P) -> PathBuf {
+        let dir = std::env::current_dir().expect("unexpected dir");
+        let dir = dir.join("assets").join("snapshot").join(child);
+        if !dir.exists() {
+            std::fs::create_dir_all(&dir).expect("unable to create snapshot directory");
+        }
+        dir
+    }
 
     pub struct FileHandler;
 
     impl BackupSender for FileHandler {
         fn prepare_backups(&self, ctx: &RaftContext, _: &SnapshotMetadata) -> PathBuf {
             if let Some(_) = ctx.partition.as_ref() {
-                // TODO: do snapshot of key-values in range
+                // TODO: make snapshot of entries in given key-values
             }
-            Path::new(TEST_PATH).join("send").to_path_buf()
+            _snap_dir("send").to_path_buf()
         }
     }
 
@@ -194,7 +237,7 @@ pub mod tests {
         fn exists(&self, item: &MetaInfo) -> bool {
             let path = Path::new(item.identify.as_str());
             let fname = path.file_name().unwrap().to_str().unwrap();
-            let restore = Path::new(TEST_PATH).join("receive").join(fname);
+            let restore = _snap_dir("receive").join(fname);
             restore.exists()
         }
 
@@ -202,9 +245,9 @@ pub mod tests {
             let path = Path::new(item.identify.as_str());
             let fname = path.file_name().unwrap().to_str().unwrap();
 
-            let restore = Path::new(TEST_PATH).join("receive");
+            let restore = _snap_dir("receive");
             let f = OpenOptions::new()
-                .create(true)
+                .create_new(true)
                 .write(true)
                 .open(restore.join(fname))?;
             Ok(f)
@@ -217,13 +260,14 @@ pub mod tests {
     }
 
     #[test]
-    fn bigfile() {
-        let path = Path::new("C:\\workspace\\raft\\Dayu\\yu-the-great\\assets\\send");
+    fn mock_file() {
+        let path = _snap_dir("send");
         let mut file = OpenOptions::new()
             .create(true)
             .write(true)
             .open(path.join("backups.txt"))
             .unwrap();
+        // 512 MB
         let _ = file.write(vec![0; 536870912].as_slice());
         let _ = file.flush();
     }

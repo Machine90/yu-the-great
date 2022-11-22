@@ -1,17 +1,28 @@
 pub mod file_snapshot;
+pub mod bin_snapshot;
 
-
-use std::io::Result;
+use std::{io::Result, ops::Range};
 use common::protos::raft_log_proto::Snapshot;
 use components::vendor::prelude::singleton;
 use super::{Acl, RaftContext};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Config {
     /// determine if this snapshot implementation 
     /// should receive backups in parellel.
     pub recv_backups_parallel: bool,
     pub compute_backups_checksum: bool,
+    /// defaut to "127.0.0.1" means that backup receiver 
+    /// will bind at which address to receive backups. makesure
+    /// the sender has this address in it's hosts (e.g. linux /etc/hosts) 
+    pub bind_address: String,
+    /// the receiver attempt to try listening on given port before receiving
+    /// backups, but the port maybe holded by other connections. so 
+    /// we'll try next port in range.
+    pub try_ports: Range<u16>,
+    /// default to 7, we allow different thread transferring backups at same time, 
+    /// but should never larger than this limited.
+    pub max_allowed_inflight_transferring: u32,
 }
 
 impl Default for Config {
@@ -19,6 +30,9 @@ impl Default for Config {
         Self {
             recv_backups_parallel: true,
             compute_backups_checksum: true,
+            bind_address: "127.0.0.1".to_owned(),
+            try_ports: 20070..20100,
+            max_allowed_inflight_transferring: 7
         }
     }
 }

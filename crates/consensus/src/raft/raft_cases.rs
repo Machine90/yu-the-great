@@ -137,7 +137,7 @@ impl RaftCases {
     fn dispatch_message<S: Storage>(peer: &mut Raft<S>, message: &payload::Message) -> Self {
         return match message.msg_type() {
             payload::MessageType::MsgHup => Self::RequestElection,
-            // when current raft peer recev a vote request
+            // when current raft peer receive a vote request
             payload::MessageType::MsgRequestVote | payload::MessageType::MsgRequestPreVote => {
                 let can_vote = Self::can_vote(peer, message);
                 let (remote_idx, remote_log_term, remote_priority) = (message.index, message.log_term, message.priority);
