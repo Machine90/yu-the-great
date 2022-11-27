@@ -1,5 +1,6 @@
+use raft_role::{raft_follower::FollowerRaft, raft_candidate::CandidateRaft};
 use rand::Rng;
-use crate::{info, debug, trace, error};
+use crate::{debug, trace, error};
 use std::{
     mem,
     ops::{Deref, DerefMut},
@@ -187,7 +188,7 @@ impl<STORAGE: Storage> Raft<STORAGE> {
 
         let disable_group_commit = !enable;
         if self.current_raft_role == RaftRole::Leader && disable_group_commit {
-            raft_role::try_commit_and_broadcast(self);
+            (self as &mut dyn LeaderRaft).try_commit_and_broadcast();
         }
     }
 
@@ -226,7 +227,7 @@ impl<STORAGE: Storage> Raft<STORAGE> {
         }
 
         // only the current peer is Leader should broadcast configure changes of the cluster
-        raft_role::broadcast_cluster_conf_change(self);
+        (self as &mut dyn LeaderRaft).broadcast_cluster_conf_change();
         conf_state
     }
 
@@ -243,12 +244,14 @@ impl<STORAGE: Storage> Raft<STORAGE> {
             && not_pending_conf_change
         {
             let mut empty_conf = Entry::default();
+            // this empty confchange entry is used to generate 
+            // a LeaveJoint event to clear outgoing voters.
             empty_conf.set_entry_type(EntryType::EntryConfChange);
             if !self.append_entries(&mut vec![empty_conf]) {
                 panic!("appending an empty EntryConfChange should never be dropped")
             }
             self.pending_conf_index = self.raft_log.last_index().unwrap();
-            info!("initiating automatic transition out of joint cluster"; "cluster info" => ?self.tracker.cluster_info());
+            debug!("initiating automatic transition out of joint cluster"; "cluster info" => ?self.tracker.cluster_info());
         }
     }
 
@@ -283,19 +286,19 @@ impl<STORAGE: Storage> Raft<STORAGE> {
                 self.core.send_to_mailbox(reject, &mut self.messages);
             }
             RaftCases::RecvLowerTerm => {
-                info!(
+                debug!(
                     "Ignore when {case} from {from}", case = &case, from = message.from;
                     "term" => self.term, "msg type" => ?message.msg_type(), "msg term" => message.term
                 );
             }
             RaftCases::LeaderRecvMsg => {
-                return raft_role::step_leader(self, message);
+                return (self as &mut dyn LeaderRaft).process(message);
             }
             RaftCases::FollowerRecvMsg => {
-                return raft_role::step_follower(self, message);
+                return (self as &mut dyn FollowerRaft).process(message);
             }
             RaftCases::CandidateRecvMsg => {
-                return raft_role::step_candidate(self, message);
+                return (self as &mut dyn CandidateRaft).process(message);
             }
             // when received a normal msg (received term equals to current raft term)
             RaftCases::ApproveRequestPreVote => {
@@ -321,7 +324,7 @@ impl<STORAGE: Storage> Raft<STORAGE> {
                 let _ = self.maybe_commit_by_vote(&message);
             }
             RaftCases::HighTermPeerVoteWhenInLease => {
-                info!(
+                debug!(
                     "local: [term: {term}, index: {index}, vote: {vote}] recv msg from \
                     {remote}: [term: {rterm}, index: {rindex}] was ignored when {case}",
                     term = self.raft_log.last_term(),
@@ -587,7 +590,7 @@ impl<STORAGE: Storage> Raft<STORAGE> {
         }
 
         let raft_log = &mut self.core.raft_log;
-        info!(
+        debug!(
             "[commit: {:?}, last-index: {:?}, last-term: {:?}] fast-forwarded commit to vote [index: {:?}, term: {:?}]",
             raft_log.quorum_committed, 
             raft_log.last_index(), 

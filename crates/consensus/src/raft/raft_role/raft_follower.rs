@@ -229,10 +229,10 @@ where
 
         let mut response;
         if let Some((_, last_appended_index)) = self.raft_log.maybe_append(
-            message.index,
-            message.log_term,
-            message.commit,
-            message.entries.as_slice(),
+            message.index, // next_index - 1 of this peer from leader
+            message.log_term, // leader's persist term of index.
+            message.commit, // leader's commit.
+            message.entries.as_slice(), // entries of [next_index, leader.last_index]
         ) {
             response = accept_message(None, leader_id, MsgAppendResponse);
             response.index = last_appended_index;

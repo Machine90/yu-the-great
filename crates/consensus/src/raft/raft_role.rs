@@ -1,7 +1,3 @@
-use self::{raft_candidate::CandidateRaft, raft_follower::FollowerRaft, raft_leader::LeaderRaft};
-use crate::protos::{raft_payload_proto as payload};
-use crate::errors::*;
-
 pub mod raft_candidate;
 pub mod raft_follower;
 pub mod raft_leader;
@@ -58,25 +54,4 @@ impl Default for RaftRole {
     fn default() -> Self {
         RaftRole::Follower
     }
-}
-
-pub fn try_commit_and_broadcast(leader: &mut dyn LeaderRaft) {
-    leader.try_commit_and_broadcast();
-}
-
-#[inline]
-pub fn broadcast_cluster_conf_change(leader: &mut dyn LeaderRaft) {
-    leader.broadcast_cluster_conf_change();
-}
-
-pub fn step_leader(leader: &mut dyn LeaderRaft, message: payload::Message) -> Result<()> {
-    leader.process(message)
-}
-
-pub fn step_follower(follower: &mut dyn FollowerRaft, message: payload::Message) -> Result<()> {
-    follower.process(message)
-}
-
-pub fn step_candidate(candidate: &mut dyn CandidateRaft, message: payload::Message) -> Result<()> {
-    candidate.process(message)
 }

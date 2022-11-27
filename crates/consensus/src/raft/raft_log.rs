@@ -422,6 +422,7 @@ where
         if conflict_index == DUMMY_INDEX { // there has not conflict between entries and stored
         } else if conflict_index <= self.quorum_committed {
             // when in this case, it's means there has conflict between committed entries and entries prepare to append
+            // this is an unexpected case in raft.
             panic!("entry {} conflict with committed entry {}", conflict_index, self.quorum_committed);
         } else {
             // otherwise append these entries (not conflict part) to unstable

@@ -12,8 +12,3 @@ rand = "0.8"
 slog = "2.7"
 
 common = { path = "../common" }
-
-[dev-dependencies]
-criterion = "0.4"
-anyhow = "1.0.32"
-itertools = "0.10"
