@@ -1,12 +1,10 @@
 use crate::peer::config::NodeConfig;
 use crate::protos::raft_log_proto::Entry;
-use crate::tokio::time::timeout;
+use crate::tokio::{time::timeout, task::JoinHandle};
 use crate::{torrent::runtime, PeerID, RaftMsg, RaftResult};
 use common::protocol::{GroupID, NodeID};
-use common::protos::raft_log_proto::Snapshot;
-use components::mailbox::{PostOffice, RaftEndpoint};
-use components::mailbox::api::GroupMailBox;
-use components::mailbox::topo::Topo;
+use common::protos::raft_log_proto::{Snapshot};
+use components::mailbox::{PostOffice, RaftEndpoint, topo::Topo, api::GroupMailBox};
 use components::monitor::{Monitor};
 use components::utils::endpoint_change::{ChangeSet, Changed};
 use consensus::prelude::{SoftState};
@@ -23,11 +21,11 @@ use super::{
     listener::{Listener, Listeners, RaftContext},
 };
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 pub enum ApplyState {
     // finished or failure
     Applied(SnapshotStatus),
-    Applying,
+    Applying(JoinHandle<Option<SnapshotStatus>>),
 }
 
 
@@ -286,6 +284,9 @@ impl CoprocessorDriver {
         Ok(())
     }
 
+    /// Do applying the backups in a standalone task, then return result in-place if 
+    /// finish syncing in timeout (if backups small enough), otherwise return the transferring 
+    /// task and handle it in future in process.
     pub async fn do_apply_snapshot(
         &self,
         _ctx: &RaftContext,
@@ -304,14 +305,14 @@ impl CoprocessorDriver {
 
         let snap = snapshot.clone();
 
-        runtime::spawn(async move {
-            // TODO: do really handle snapshot
+        // first, handle receiving task in an async worker, then executor keep receiving backups.
+        let transferring = runtime::spawn(async move {
             let try_apply = executor.receiving_backups(&snap, listeners.clone()).await;
+            // determine if snapshot transferring success
             let status = if let Err(e) = try_apply {
                 crate::error!(
                     "attempt to receive backups of {:?} and apply it, but failed, see: {:?}",
-                    snap,
-                    e
+                    snap, e
                 );
                 SnapshotStatus::Failure
             } else {
@@ -319,15 +320,17 @@ impl CoprocessorDriver {
             };
 
             executor.after_applied_backups(&snap, status, listeners).await;
-            if let Err(_) = notifier.send(status) {
-                // timeout, just handle it by self.
-            }
+
+            // try to notify outside if finish transferring.
+            // if got err, means timeout, then just handle it by self.
+            notifier.send(status).err()
         });
 
         let apply_in_timeout = timeout(wait_timeout, recv);
         let apply_in_timeout = apply_in_timeout.await;
         if let Err(_) = apply_in_timeout {
-            return ApplyState::Applying;
+            // so.. return the inflight task if exceed transfer timeout. maybe success in future.
+            return ApplyState::Applying(transferring);
         }
         // blocking for accept snapshot result in given timeout.
         match apply_in_timeout.unwrap() {

@@ -27,7 +27,8 @@ impl<S: GroupStorage> GroupChecker<S> {
 
     fn _evaluate_overload(metrics: &SysMetrics) -> bool {
         let (one, five, fifteen) = metrics.cpu_load;
-        if one > 0.7 || five > 0.6 || fifteen > 0.5 {
+        let core = metrics.cpu_physical_cores as f64;
+        if one > (0.7 * core) || five > (0.6  * core) || fifteen > (0.5  * core) {
             return true;
         }
 

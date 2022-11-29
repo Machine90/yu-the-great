@@ -6,6 +6,7 @@ edition = "2021"
 
 [features]
 default = ["components_basic"]
+full = ["multi", "single", "rpc_transport"]
 # feature multi is still developing
 multi = ["sysinfo", "num_cpus", "components_multi"]
 single = []

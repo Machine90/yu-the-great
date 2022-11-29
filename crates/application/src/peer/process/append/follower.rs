@@ -10,7 +10,7 @@ use crate::{
     mailbox::api::MailBox,
     peer::{
         process::{at_most_one_msg, exactly_one_msg},
-        Peer,
+        Peer, Core,
     },
     torrent::runtime,
     ConsensusError, RaftMsg,
@@ -133,10 +133,28 @@ impl Peer {
             // receive snapshot and handled it.
             match apply_state {
                 ApplyState::Applied(status) => {
-                    self.report_snap_status(status, false).await?;
+                    self.report_snap_status(status).await?;
                     Ok(response)
                 }
-                ApplyState::Applying => Err(ConsensusError::Pending),
+                ApplyState::Applying(transferring) => {
+                    let core = self.core.clone();
+                    // if still applying backups, then move task to another coroutine. and return immediately.
+                    runtime::spawn(async move {
+                        // try to join the transferring task.
+                        let snap_stat = transferring.await;
+                        if let Err(e) = snap_stat {
+                            crate::error!("join the backup transferring task failed, see: {:?}", e);
+                            return;
+                        }
+                        let snap_stat = snap_stat.unwrap();
+                        if snap_stat.is_none() {
+                            // means status has been notified success in task.
+                            return;
+                        }
+                        let _ = core.report_snap_status(snap_stat.unwrap()).await;
+                    });
+                    Err(ConsensusError::Pending)
+                },
             }
         } else {
             // receive low term snapshot from leader when support
@@ -144,34 +162,17 @@ impl Peer {
             Ok(response)
         }
     }
+}
+
+impl Core {
 
     pub async fn report_snap_status(
         &self,
-        status: SnapshotStatus,
-        should_sync: bool,
+        status: SnapshotStatus
     ) -> RaftResult<()> {
         let self_id = self.node_id();
-        let leader_id = self.rl_raft().await.leader_id();
-        if should_sync {
-            self.mailbox
-                .report_snap_status(self_id, leader_id, status.to_string())
-                .await
-        } else {
-            let mailbox = self.mailbox.clone();
-            runtime::spawn(async move {
-                let resp = mailbox
-                    .report_snap_status(self_id, leader_id, status.to_string())
-                    .await;
-                if let Err(e) = resp {
-                    crate::error!(
-                        "failed to report {:?} to leader: {:?}, see: {:?}",
-                        status,
-                        leader_id,
-                        e
-                    );
-                }
-            });
-            Ok(())
-        }
+        let leader_id = self.leader_id().await;
+        // TODO: give a retry
+        self.mailbox.report_snap_status(self_id, leader_id, status.to_string()).await
     }
 }

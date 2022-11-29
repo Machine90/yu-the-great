@@ -1,10 +1,10 @@
 <img src="./document/imgs/logo.png" width="300"/>
 
-## [Architecture](document/design.md) | [Examples](https://github.com/Machine90/yu-examples) | [Configuration](document/configuration.md) | [Multi Raft](document/multi_raft.md) 
+## [Architecture](document/design.md) | [Examples](https://github.com/Machine90/yu-examples) | [中文说明](document/cn.md) | [Configuration](document/configuration.md) | [Multi Raft](document/multi_raft.md) 
 
-**Yu The Great** is an open-source distributed consensus library which implemented by Rust based on the raft algorithm, can help developers to write some distributed products easily, for example distributed key-value store, distributed message queue and some tools like distributed lock that can be embed in your project.
+**Yu The Great** is an open-source distributed consensus library which implemented in Rust language based on the raft algorithm, can help developers to write some distributed products easily, for example distributed key-value store, distributed message queue and some tools like distributed lock that can be embed in your project.
 
-Unlike others distributed project, Yu is not a standalone server program, so that developers don't need to deploy it separately, just integrate it with your project. Yu is inspired by some great distributed systems from HBase, TiKV and etcd, is aimed to make it easily to develop scalable distributed project.
+Unlike others distributed project, Yu is not a standalone server program, so that developers don't need to deploy it separately, just integrate it with your project. Yu is inspired by some great distributed systems from HBase, TiKV and etcd.
 
 About project name, "Yu the great", also known as  Da yu, hero of China in ancient times who tamed the floods and protected residents from disaster, he drained and dredged the water and diverted the flood into the sea...  We hope this project can help others to tame the network data flow same as Yu who tamed the floods.
 
@@ -14,7 +14,7 @@ The logo is designed by my wife Kelly, thanks a lot!
 
 ### Dependency
 
-We haven't deploy it to any repo like crate.io (in plan) now, so if you have interesting, import it from git.
+We haven't deploy it to any repo like crates.io (in plan) now, so if you have interesting, import it from git.
 
 ```
 [dependencies]

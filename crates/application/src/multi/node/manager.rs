@@ -88,12 +88,9 @@ impl<S: GroupStorage + Clone> NodeManager<S> {
                 .assign(group, false)
                 .and_then(|(peer, added)| {
                     new_endpoints.extend(added);
-                    Ok(LocalPeer {
+                    peers.insert(group_id, LocalPeer {
                         peer: Arc::new(peer),
-                    })
-                })
-                .and_then(|local| {
-                    peers.insert(group_id, local);
+                    });
                     Ok(())
                 });
 

@@ -216,12 +216,19 @@ impl Core {
         Ok(light_ready.committed_index())
     }
 
+    /// Trying to apply the snnapshot from leader at this follower, maybe finish applying 
+    /// in timeout limited, then reply the leader with mail `report_snap_status`.
     async fn apply_snapshot(
         &self,
         ctx: &RaftContext,
         snap_from: NodeID,
         mut snapshot: Snapshot,
     ) -> RaftResult<ApplyState> {
+        // first, try apply this snapshot request to store, maybe reject if 
+        // snap out of date. if approved, means this peer's log entries is expired, 
+        // then just feel free to clear them.
+        self.write_store.apply_snapshot(snapshot.get_metadata().clone())?;
+
         // step1: prepare to accept this snapshot, before that, check what
         // I need first, then reply to leader checked result.
         if self
@@ -250,7 +257,7 @@ impl Core {
         match apply_state {
             ApplyState::Applied(status) if status == SnapshotStatus::Finish => {
                 // if finished receive backups, then apply to raft log.
-                self.write_store.apply_snapshot(snapshot.take_metadata())?;
+                crate::debug!("finish transferring backup in-place, result is: {:?}", status);
             }
             _ => (),
         }
