@@ -9,7 +9,7 @@ use crate::{storage::{Storage, limit_size}};
 mod unstable;
 use crate::{errors::*, debug};
 
-use super::DUMMY_INDEX;
+use super::{DUMMY_INDEX, DUMMY_TERM};
 
 
 /// The implementation of raft log.
@@ -581,7 +581,7 @@ where
     fn term(&self, index: u64) -> crate::errors::Result<u64> {
         let dummy_idx = self.first_index().unwrap() - 1;
         if index < dummy_idx || index > self.last_index().unwrap() {
-            return Ok(0u64);
+            return Ok(DUMMY_TERM);
         }
         match self.unstable.maybe_term(index) {
             Some(term) => Ok(term),

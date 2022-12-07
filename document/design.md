@@ -3,14 +3,18 @@
 
 #### Single Group
 
-![arch](./imgs/phy.png)
+![arch single](./imgs/phy.png)
 
 #### Multi Groups
 
-![arch](./imgs/multi-phy.png)
+![arch multi](./imgs/multi-phy.png)
 
 ### Logical
 
 #### Single
 
-![arch](./imgs/logic.png)
+![logical single](./imgs/logic.png)
+
+**Process**
+* Propose Append
+![append](./imgs/process/propose_append.png)
