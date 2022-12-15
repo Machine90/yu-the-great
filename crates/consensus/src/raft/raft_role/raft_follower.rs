@@ -245,15 +245,20 @@ where
 
             // try to find some conflict hints for reject
             let hint_index = min(message.index, self.raft_log.last_index().unwrap());
-            let (conflict_index, conflict_term) = self
+
+            // match term & index, find conflict index and responnse to leader.
+            let (hint_index, hint_term) = self
                 .raft_log
-                .find_conflict_by_term(hint_index, message.term);
+                .find_conflict_by_term(hint_index, message.log_term);
+            if hint_term.is_none() {
+                error!("invalid term of {hint_index}, must be exists");
+            }
 
             // reject the leader's proposal if append raft_log failed
             response = reject_message(None, leader_id, MsgAppendResponse);
             response.index = message.index;
-            response.reject_hint = conflict_index;
-            response.log_term = conflict_term.unwrap_or(DUMMY_TERM);
+            response.reject_hint = hint_index;
+            response.log_term = hint_term.unwrap_or(DUMMY_TERM);
         }
 
         response.commit = self.raft_log.quorum_committed;

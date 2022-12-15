@@ -202,36 +202,31 @@ where
         self.applied = index; // setter
     }
  
-    /// find the conflict index-term pair via expected conflicted index
-    /// ## Returns
-    /// * (conflict_index, Option(conflict_term))
-    pub fn find_conflict_by_term(&self, index: u64, term: u64) -> (u64, Option<u64>) {
+    /// Try to find the `conflict index` on given `term`, the `conflict index` less or equal to 
+    /// given `index`.
+    pub fn find_conflict_by_term(&self, mut index: u64, term: u64) -> (u64, Option<u64>) {
         let last_index = self.last_index().unwrap();
         if index > last_index {
             // conflict index should not be larger than last index (in both unstable and stable)
             return (index, None);
         }
-        self.loop_scan(index, term)
-    }
-
-    #[inline]
-    fn loop_scan(&self, mut conflict_index: u64, term: u64) -> (u64, Option<u64>) {
-        loop {
-            match self.term(conflict_index) {
+        while index > 0 {
+            match self.term(index) {
                 Ok(current_term) => {
-                    if current_term > term {
-                        conflict_index -= 1
-                    } else {
+                    if current_term <= term {
                         // if current_term <= input term and index is equal, then current term is conflict
-                        return (conflict_index, Some(current_term));
+                        return (index, Some(current_term));
                     }
+                    // advance to previous index
+                    index -= 1;
                 },
                 Err(_err) => {
                     // there has not index matched expected conflict index
-                    return (conflict_index, None);
+                    return (index, None);
                 }
             }
         }
+        (index, None)
     }
 
     /// Finds the first index of the conflict.
