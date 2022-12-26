@@ -250,6 +250,7 @@ where
             let (hint_index, hint_term) = self
                 .raft_log
                 .find_conflict_by_term(hint_index, message.log_term);
+            
             if hint_term.is_none() {
                 error!("invalid term of {hint_index}, must be exists");
             }

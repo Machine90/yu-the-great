@@ -48,7 +48,7 @@ impl SimpleCoprocessor {
 
 #[crate::async_trait]
 impl RaftCoprocessor for SimpleCoprocessor {
-    async fn handle_commit_log_entry(
+    async fn apply_log_entries(
         &self,
         ctx: &RaftContext,
         entries: &Vec<Entry>,
@@ -76,7 +76,7 @@ impl RaftCoprocessor for SimpleCoprocessor {
         evaluate_changes
     }
 
-    async fn handle_commit_cmds(
+    async fn apply_cmds(
         &self,
         ctx: &RaftContext,
         cmds: &Vec<Vec<u8>>,

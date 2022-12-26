@@ -381,7 +381,10 @@ impl Core {
             }
         };
         
-        let commit_before_append = self.apply_commit_entry(&mut wraft, ready.take_committed_entries());
+        // leader maybe apply after handle received append_response.
+        self.apply_commit_entry(&mut wraft, ready.take_committed_entries())
+            .join_all().await;
+
         // try persist ready
         let commit_in_hs = self.persist_ready(&mut ready).await?;
 
@@ -390,24 +393,19 @@ impl Core {
 
         let mut light_rd = wraft.advance(ready);
         let committed = self.persist_light_ready(&mut light_rd).await?;
-        let commit_after_append = self.apply_commit_entry(&mut wraft, light_rd.take_committed_entries());
+
+        // leader apply entries after advance append
+        self.apply_commit_entry(&mut wraft, light_rd.take_committed_entries())
+            .join_all().await;
         // maybe generate some remained append msgs when Leader apply change entry 
         // before advance ready via method apply_commit_entry. 
         // e.g. append entries to new added node.
         let supplement = msgs(light_rd.take_messages());
-
-        wraft.advance_apply();
-        drop(wraft);
+        self._advance_apply(wraft, None).await;
 
         let committed = committed.or(commit_in_hs);
         if let Some(commit) = &committed {
             crate::trace!("leader commit in: {:?} after tally append_response.", commit);
-        }
-        if !commit_before_append.is_empty() {
-            commit_before_append.join_all().await;
-        }
-        if !commit_after_append.is_empty() {
-            commit_after_append.join_all().await;
         }
 
         Ok(Self::_next_append_step(committed, appends, supplement))

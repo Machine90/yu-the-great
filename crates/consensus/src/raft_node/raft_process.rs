@@ -78,11 +78,11 @@ pub trait RaftProcess {
     fn advance_append_async(&mut self, rd: Ready);
 
     /// ## Description
-    /// Advance apply maybe update `raft_log.applied` to
-    /// `since_committed_index`. If raft is still in pending
-    /// `conf_change` (add or remove peer) and current peer is `Leader`,
-    /// an empty entry `EntryConfChange` will be stored in `raft_log.unstable`
-    fn advance_apply(&mut self);
+    /// Advance apply and update `raft_log.applied` to latest `since_committed_index` 
+    /// then return this value. If current peer is `Leader` and has applied some `conf_change`, 
+    /// then generate an empty `EntryConfChange` entry, so that auto `LeaveJoint` will
+    /// be take place next time.
+    fn advance_apply(&mut self) -> u64;
 
     /// This action maybe update `raft_log.applied` to given `applied`
     fn advance_apply_to(&mut self, applied: u64);
@@ -239,8 +239,10 @@ impl<S: Storage> RaftProcess for RaftNode<S> where S: Storage {
     }
 
     #[inline]
-    fn advance_apply(&mut self) {
-        self.commit_apply(self.since_committed_index)
+    fn advance_apply(&mut self) -> u64 {
+        let applied_index = self.since_committed_index;
+        self.commit_apply(applied_index);
+        applied_index
     }
 
     #[inline]

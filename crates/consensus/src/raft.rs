@@ -236,12 +236,12 @@ impl<STORAGE: Storage> Raft<STORAGE> {
         let origin_applied = self.raft_log.get_applied();
         self.raft_log.update_applied_index(update_applied);
 
-        let not_pending_conf_change =
+        let has_applied_conf_change =
             self.pending_conf_index >= origin_applied && self.pending_conf_index <= update_applied;
 
         if self.current_raft_role == RaftRole::Leader
             && self.tracker.auto_leave
-            && not_pending_conf_change
+            && has_applied_conf_change
         {
             let mut empty_conf = Entry::default();
             // this empty confchange entry is used to generate 

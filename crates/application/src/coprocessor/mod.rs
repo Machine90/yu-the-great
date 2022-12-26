@@ -75,7 +75,7 @@ pub trait RaftCoprocessor: Sync {
 
     /// Handle commit propose data with listeners. Both available for
     /// `Leader` and `Follower`.
-    async fn handle_commit_log_entry(
+    async fn apply_log_entries(
         &self,
         ctx: &RaftContext,
         entries: &Vec<Entry>,
@@ -84,7 +84,7 @@ pub trait RaftCoprocessor: Sync {
 
     /// Handle committed commands with listeners. Both available for
     /// `Leader` and `Follower`.
-    async fn handle_commit_cmds(
+    async fn apply_cmds(
         &self,
         ctx: &RaftContext,
         cmds: &Vec<Vec<u8>>,

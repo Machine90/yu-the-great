@@ -54,26 +54,26 @@ impl RaftCoprocessor for LinearCoprocessor {
     }
 
     #[inline(always)]
-    async fn handle_commit_log_entry(
+    async fn apply_log_entries(
         &self,
         ctx: &RaftContext,
         entries: &Vec<Entry>,
         listeners: Arc<Listeners>,
     ) -> i64 {
         self.based
-            .handle_commit_log_entry(ctx, entries, listeners)
+            .apply_log_entries(ctx, entries, listeners)
             .await
     }
 
     #[inline(always)]
-    async fn handle_commit_cmds(
+    async fn apply_cmds(
         &self,
         ctx: &RaftContext,
         cmds: &Vec<Vec<u8>>,
         listeners: Arc<Listeners>,
     ) {
         self.based
-            .handle_commit_cmds(ctx, cmds, listeners)
+            .apply_cmds(ctx, cmds, listeners)
             .await
     }
 

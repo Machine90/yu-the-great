@@ -294,7 +294,7 @@ impl Core {
             let cp_driver = self.coprocessor_driver.clone();
             let ctx = RaftContext::from_status(group_id, raft.status());
             let handle_committed_cmds = runtime::spawn(async move {
-                cp_driver.handle_commit_cmds(ctx, cmds).await;
+                cp_driver.apply_cmds(ctx, cmds).await;
             });
             tasks.push(("Apply commands".to_owned(), handle_committed_cmds));
         }
@@ -308,7 +308,7 @@ impl Core {
                     "attempt to apply {entries} logged entries",
                     entries = normals.len()
                 );
-                cp_driver.handle_commit_log_entry(ctx, normals).await;
+                cp_driver.apply_log_entries(ctx, normals).await;
             });
             tasks.push(("Apply normal entries".to_owned(), handle_log_entry));
         }
@@ -394,6 +394,19 @@ impl Core {
             tasks.push(("Apply conf changes".to_owned(), notifiy_changes));
         }
         Tasks(tasks)
+    }
+
+    async fn _advance_apply(&self, mut raft: WLockRaft<'_>, applied: Option<u64>) -> RaftContext {
+        // first, update applied value.
+        if let Some(applied) = applied {
+            raft.advance_apply_to(applied);
+        } else {
+            raft.advance_apply();
+        }
+        // then, fetch latest status of raft.
+        let ctx: RaftContext = RaftContext::from_status(self.group_id, raft.status());
+        self.coprocessor_driver.after_applied(&ctx).await;
+        ctx
     }
 }
 

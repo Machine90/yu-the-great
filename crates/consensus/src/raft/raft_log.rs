@@ -195,7 +195,7 @@ where
         if index == 0 { return; }
         if index > min(self.quorum_committed, self.persisted) || index < self.applied {
             panic!(
-                "applied: {} should always less than quorum_committed: {} and persisted: {}, and larger than {}", 
+                "applied: {} should always less than quorum_committed: {} and persisted: {}, and larger than origin applied({})", 
                 index, self.quorum_committed, self.persisted, self.applied
             );
         }

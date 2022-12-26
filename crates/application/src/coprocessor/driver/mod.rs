@@ -164,10 +164,10 @@ impl CoprocessorDriver {
     }
 
     /// Handle commit log_entry with coprocessors (in serialize).
-    pub async fn handle_commit_log_entry(&self, ctx: RaftContext, entries: Vec<Entry>) {
+    pub async fn apply_log_entries(&self, ctx: RaftContext, entries: Vec<Entry>) {
         // handle and dispatch entry in ConfChange or Normal
         let throughput = self.coprocessor
-            .handle_commit_log_entry(&ctx, &entries, self.listeners.clone())
+            .apply_log_entries(&ctx, &entries, self.listeners.clone())
             .await;
 
         if throughput == 0 { return; }
@@ -190,15 +190,30 @@ impl CoprocessorDriver {
         // let _r = store.compact(ctx.applied);
     }
 
-    /// Handle commit log_entry with coprocessors (in serialize).
-    pub async fn handle_commit_cmds(
+    /// Apply entry with [EntryType]() on this node.
+    pub async fn apply_cmds(
         &self,
         ctx: RaftContext,
         cmds: Vec<Vec<u8>>,
     ) {
         // handle and dispatch commands
         self.coprocessor
-            .handle_commit_cmds(&ctx, &cmds, self.listeners.clone()).await;
+            .apply_cmds(&ctx, &cmds, self.listeners.clone()).await;
+    }
+
+    /// After advance applied index, `applied_index` always smaller or equal to `commit_index`,
+    /// if applied, means log entries before applied can be removed (but not required).
+    pub async fn after_applied(
+        &self, 
+        ctx: &RaftContext,
+    ) {
+        let RaftContext { 
+            group_id, 
+            role, 
+            applied, 
+            ..
+        } = ctx;
+        // TODO
     }
 
     /// When leader receive raw read_index ctx directly or from

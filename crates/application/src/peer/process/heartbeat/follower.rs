@@ -45,10 +45,8 @@ impl Peer {
         let mut light_ready = raft.advance(ready);
         // maybe generate some commit, then persist it.
         let _ = self.persist_light_ready(&mut light_ready).await?;
-
-        raft.advance_apply();
-        drop(raft);
         commit_by_heartbeat.join_all().await;
+        self._advance_apply(raft, None).await;
 
         // keep this code for some heartbeat delay test
         // crate::tokio::time::sleep(std::time::Duration::from_millis(5)).await;
