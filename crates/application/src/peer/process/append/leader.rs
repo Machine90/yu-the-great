@@ -280,27 +280,29 @@ impl Core {
     /// broadcast all follower tell them to commit their entries to committed index,
     /// then step and advance to update progress of these follower via their
     /// append_response, but don't consinuous sending append to non-replicated one.
-    pub(crate) async fn broadcast_commit(&self, msgs: Vec<RaftMsg>) {
-        let mut pipelines = Pipelines::new(self.mailbox.clone());
+    pub(crate) async fn broadcast_commit(&self, msgs: Vec<RaftMsg>) -> bool {
         let total = msgs.len();
-        let raft = self.raft_group.clone();
-        pipelines.broadcast_with_async_cb(msgs, move |id, resp| {
-            let raft = raft.clone();
-            async move {
-                let mut wraft = raft.wl_raft().await;
-                if let Err(e) = resp {
-                    return Err(e);
+        let mut notifies = Vec::with_capacity(total);
+        for append in msgs {
+            let mailbox = self.mailbox.clone();
+            let notify = runtime::spawn(async move {
+                if let Err(e) = mailbox.send_append_async(append).await {
+                    crate::warn!("{:?}", e);
+                    false
+                } else {
+                    true
                 }
-                // just update progress of responder's matched
-                let ready = wraft.step_and_ready(resp.unwrap())?;
-                let _lr = wraft.advance(ready);
-                drop(wraft);
-                debug!("follower-{:?} has committed it's logged entry", id);
-                Ok(())
+            });
+            notifies.push(notify);
+        }
+        let mut maybe_success = 0;
+        for notify in notifies {
+            let notified = notify.await.unwrap_or(false);
+            if notified {
+                maybe_success += 1;
             }
-        });
-        // majority commit is required.
-        pipelines.join(total / 2 + 1).await;
+        }
+        maybe_success >= total / 2 + 1
     }
 
     /// This method using to send batch append messages to follower.
@@ -366,8 +368,7 @@ impl Core {
     /// ```
     async fn _handle_append_response(&self, append_resp: RaftMsg) -> RaftResult<NextState> {
         assert_eq!(append_resp.msg_type(), MsgAppendResponse);
-        let group = self.raft_group.clone();
-        let mut wraft = group.wl_raft().await;
+        let mut wraft = self.wl_raft().await;
         let ready = wraft.step_and_ready(append_resp);
         let mut ready = match ready {
             Ok(ready) => ready,
@@ -381,9 +382,12 @@ impl Core {
             }
         };
         
-        // leader maybe apply after handle received append_response.
-        self.apply_commit_entry(&mut wraft, ready.take_committed_entries())
-            .join_all().await;
+        // leader maybe update it's commit after majority append response with next 
+        // commit value, then new entries from last 
+        let applied_before = self.apply_commit_entries(
+            &mut wraft, 
+            ready.take_committed_entries()
+        ).await;
 
         // try persist ready
         let commit_in_hs = self.persist_ready(&mut ready).await?;
@@ -391,21 +395,24 @@ impl Core {
         // if committed has been changed, commit msg will be generate at same time.
         let appends = msgs(ready.take_messages());
 
-        let mut light_rd = wraft.advance(ready);
+        let mut light_rd = wraft.advance_append(ready);
         let committed = self.persist_light_ready(&mut light_rd).await?;
 
         // leader apply entries after advance append
-        self.apply_commit_entry(&mut wraft, light_rd.take_committed_entries())
-            .join_all().await;
+        let applied_after = self.apply_commit_entries(
+            &mut wraft, 
+            light_rd.take_committed_entries()
+        ).await;
+        
         // maybe generate some remained append msgs when Leader apply change entry 
         // before advance ready via method apply_commit_entry. 
         // e.g. append entries to new added node.
         let supplement = msgs(light_rd.take_messages());
-        self._advance_apply(wraft, None).await;
+        self._advance_apply(wraft, applied_after.or(applied_before)).await;
 
         let committed = committed.or(commit_in_hs);
         if let Some(commit) = &committed {
-            crate::trace!("leader commit in: {:?} after tally append_response.", commit);
+            crate::debug!("leader commit in: {:?} after tally append_response.", commit);
         }
 
         Ok(Self::_next_append_step(committed, appends, supplement))

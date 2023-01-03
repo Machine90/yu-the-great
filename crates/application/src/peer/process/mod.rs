@@ -4,7 +4,6 @@ pub mod heartbeat;
 pub mod proposal;
 pub mod read;
 pub mod tick;
-
 #[allow(unused)]
 pub mod transfer_leader;
 
@@ -12,27 +11,27 @@ use std::collections::HashSet;
 use std::{convert::TryInto, mem};
 
 use super::{raft_group::raft_node::WLockRaft, Core};
+use crate::protos::prelude::prost::Message;
 use crate::torrent::runtime;
 use crate::{
     coprocessor::listener::RaftContext,
-    debug, error,
+    error,
     storage::{ReadStorage, WriteStorage},
     tokio::task::JoinHandle,
-    utils::drain_filter,
     RaftMsg, RaftResult,
 };
 use crate::{
-    NodeID,
     coprocessor::{driver::ApplyState, ChangeReason},
     protos::{
         prelude::BatchConfChange,
         raft_log_proto::{Entry, EntryType, HardState},
     },
+    NodeID,
 };
 use common::protos::raft_conf_proto::ConfChange;
 use common::protos::raft_log_proto::Snapshot;
 use components::mailbox::api::MailBox;
-use components::utils::endpoint_change::{ChangeSet, RefChanged, EndpointChange};
+use components::utils::endpoint_change::{ChangeSet, EndpointChange, RefChanged};
 use consensus::prelude::*;
 
 #[inline]
@@ -112,7 +111,6 @@ impl Tasks {
 }
 
 impl Core {
-
     #[inline]
     pub async fn get_context(&self, with_detail: bool) -> RaftContext {
         let group = self.get_group_id();
@@ -132,7 +130,8 @@ impl Core {
         let cp_driver = self.coprocessor_driver.clone();
         let peer_id = self.get_id();
         cp_driver
-            .handle_soft_state_change(peer_id, pss, ss, reason).await;
+            .handle_soft_state_change(peer_id, pss, ss, reason)
+            .await;
     }
 
     /// ## Definition
@@ -216,7 +215,7 @@ impl Core {
         Ok(light_ready.committed_index())
     }
 
-    /// Trying to apply the snnapshot from leader at this follower, maybe finish applying 
+    /// Trying to apply the snnapshot from leader at this follower, maybe finish applying
     /// in timeout limited, then reply the leader with mail `report_snap_status`.
     async fn apply_snapshot(
         &self,
@@ -224,10 +223,11 @@ impl Core {
         snap_from: NodeID,
         mut snapshot: Snapshot,
     ) -> RaftResult<ApplyState> {
-        // first, try apply this snapshot request to store, maybe reject if 
-        // snap out of date. if approved, means this peer's log entries is expired, 
+        // first, try apply this snapshot request to store, maybe reject if
+        // snap out of date. if approved, means this peer's log entries is expired,
         // then just feel free to clear them.
-        self.write_store.apply_snapshot(snapshot.get_metadata().clone())?;
+        self.write_store
+            .apply_snapshot(snapshot.get_metadata().clone())?;
 
         // step1: prepare to accept this snapshot, before that, check what
         // I need first, then reply to leader checked result.
@@ -249,196 +249,146 @@ impl Core {
         let apply_state = self
             .coprocessor_driver
             .do_apply_snapshot(
-                ctx, 
-                &snapshot, 
-                self.conf().max_wait_backup_tranfer_duration()
-            ).await;
+                ctx,
+                &snapshot,
+                self.conf().max_wait_backup_tranfer_duration(),
+            )
+            .await;
 
         match apply_state {
             ApplyState::Applied(status) if status == SnapshotStatus::Finish => {
                 // if finished receive backups, then apply to raft log.
-                crate::debug!("finish transferring backup in-place, result is: {:?}", status);
+                crate::debug!(
+                    "finish transferring backup in-place, result is: {:?}",
+                    status
+                );
             }
             _ => (),
         }
         Ok(apply_state)
     }
 
-    /// When committed entries generated, this method would be invoked. Both
-    /// normal entry and change would be handled in this method.
-    #[inline]
-    fn apply_commit_entry(&self, raft: &mut WLockRaft<'_>, log_entry: Vec<Entry>) -> Tasks {
-        if log_entry.is_empty() {
-            return Tasks::empty();
+    async fn apply_commit_entries(
+        &self,
+        raft: &mut WLockRaft<'_>,
+        entries: Vec<Entry>,
+    ) -> Option<u64> {
+        if entries.is_empty() {
+            return None;
         }
 
-        // async tasks for returns
-        let mut tasks = Vec::new();
-
-        let mut normals = log_entry;
-
-        // TODO: replace with drain_filter in the future when it becomes stable.
-        // let changes = normals.drain_filter(|ent| ent.entry_type() == EntryType::EntryConfChange).collect::<Vec<_>>();
-        let changes = drain_changes(&mut normals);
-
-        // maybe generate some empty entry when after became lease or conf_change
-        // shouldn't allow apply these entries.
-        // noting: allow to keep empty confchange to apply
-        remove_empty_entry(&mut normals);
-
-        let cmds = drain_cmds(&mut normals);
-
-        let group_id = self.get_group_id();
-
-        if !cmds.is_empty() {
-            let cp_driver = self.coprocessor_driver.clone();
-            let ctx = RaftContext::from_status(group_id, raft.status());
-            let handle_committed_cmds = runtime::spawn(async move {
-                cp_driver.apply_cmds(ctx, cmds).await;
-            });
-            tasks.push(("Apply commands".to_owned(), handle_committed_cmds));
-        }
-
-        if !normals.is_empty() {
-            let cp_driver = self.coprocessor_driver.clone();
-            let ctx = RaftContext::from_status(group_id, raft.status());
-            // step 1: fetch normal entries and send to another thread to handle the commit log entry.
-            let handle_log_entry = runtime::spawn(async move {
-                debug!(
-                    "attempt to apply {entries} logged entries",
-                    entries = normals.len()
-                );
-                cp_driver.apply_log_entries(ctx, normals).await;
-            });
-            tasks.push(("Apply normal entries".to_owned(), handle_log_entry));
-        }
-
-        if changes.is_empty() {
-            return Tasks(tasks);
-        }
-        debug!(
-            "still have {changes} changes should be apply",
-            changes = changes.len()
-        );
-        // step 2: apply changes to current raft. then collect changes
-        let mut change_queue = ChangeSet::new();
-        // only accept latest success confstate if there has batch conf_change
-        let mut latest_conf_state = None;
-
-        // voters incoming & outgoing before apply batch changes.
-        let voters_before_apply = raft
-            .store()
-            .raft_state()
-            .map(|state| state.conf_state.all_voters())
-            .ok();
-
-        let mut conf_changes = vec![];
-        for mut batch in changes {
-            let applied = raft.apply_conf_change(&batch);
-            if let Err(e) = applied {
-                debug!(
-                    "failed to apply change: {:?} to group, reason: {:?}",
-                    batch, e
-                );
-                continue;
-            }
-            conf_changes.append(&mut batch.changes);
-            latest_conf_state = Some(applied.unwrap());
-        }
-
-        if voters_before_apply.is_some() && latest_conf_state.is_some() {
-            let voters = latest_conf_state.as_ref().unwrap().all_voters();
-            collect_changes(
-                voters_before_apply.unwrap_or_default(),
-                voters,
-                conf_changes,
-                |change| {
-                    change_queue.insert(change);
-                },
-            );
-        }
-
-        // step 3: if distinct changes still exists, then send it to another thread
-        // to handle seperated, for example, update registration, persist them etc..
+        let cp_driver = self.coprocessor_driver.as_ref();
+        let group_id = self.group_id;
         let ctx = RaftContext::from_status(group_id, raft.status());
-        if !change_queue.is_empty() {
-            let cp_driver = self.coprocessor_driver.clone();
-            let wl_store = self.write_store.clone();
-            
-            let mailbox = self.mailbox.clone();
-            let is_leader = ctx.role.is_leader();
 
-            let should_connect = cp_driver
-                    .handle_group_conf_change(ctx, change_queue);
-            let group_info = self.group_info();
+        let mut last_applied = None;
+        for mut entry in entries {
+            let index = entry.index;
+            let content = mem::take(&mut entry.data);
 
-            let notifiy_changes = runtime::spawn(async move {
-                if is_leader && !should_connect.is_empty() && group_info.is_some() {
-                    let group_info = group_info.unwrap();
-                    if should_connect.len() == 1 {
-                        // most situation is to add 1 node in a propose.
-                        // send this group info without any clone cost.
-                        let (_, node_id) = should_connect.iter().next().unwrap();
-                        mailbox.sync_with(*node_id, group_info).await;
+            let applied_result = match entry.entry_type() {
+                EntryType::EntryNormal => {
+                    if !content.is_empty() {
+                        cp_driver.apply_log_entry(&ctx, content).await
                     } else {
-                        for (_, node_id) in should_connect {
-                            mailbox.sync_with(node_id, group_info.clone()).await;
-                        }
+                        Ok(())
                     }
+                    // otherwise skip the empty entry.
                 }
-                if let Some(latest_conf_state) = latest_conf_state {
-                    // this maybe run in a blocking scenario.
-                    let _updated = wl_store.set_conf_state(latest_conf_state);
+                EntryType::EntryConfChange => {
+                    // TODO: return apply result and handle error case.
+                    self._apply_conf_change(&ctx, raft, content).await
                 }
-            });
-            tasks.push(("Apply conf changes".to_owned(), notifiy_changes));
+                EntryType::EntryCmd => {
+                    cp_driver.apply_command(&ctx, content).await
+                }
+            };
+            if let Err(e) = applied_result {
+                crate::warn!("failed to apply entry-{index} to listeners, see: {:?}", e);
+                break;
+            }
+            last_applied = Some(index);
         }
-        Tasks(tasks)
+        last_applied
+    }
+
+    async fn _apply_conf_change(
+        &self,
+        ctx: &RaftContext,
+        raft: &mut WLockRaft<'_>,
+        content: Vec<u8>,
+    ) -> RaftResult<()> {
+        let conf_channge = if content.is_empty() {
+            // maybe generate an empty entry with type `EntryConfChange`
+            // when `auto_leave` in `commit_apply` after some changes complete.
+            BatchConfChange::default()
+        } else {
+            BatchConfChange::decode(&content[..]).unwrap_or_default()
+        };
+
+        let (ori, new) = raft.apply_conf_change(&conf_channge)?;
+        let mut change_list = ChangeSet::new();
+        collect_changes(
+            ori.all_voters(),
+            new.all_voters(),
+            conf_channge.changes,
+            |change| {
+                change_list.insert(change);
+            },
+        );
+
+        if change_list.is_empty() {
+            return Ok(());
+        }
+
+        let is_leader = ctx.role.is_leader();
+
+        let should_connect = self
+            .coprocessor_driver
+            .handle_group_conf_change(ctx, change_list);
+
+        self.write_store.set_conf_state(new)?;
+
+        if is_leader && !should_connect.is_empty() {
+            let group_info = self.group_info();
+            if group_info.is_none() {
+                return Ok(());
+            }
+
+            let group_info = group_info.unwrap();
+            if should_connect.len() == 1 {
+                // most situation is to add 1 node in a propose.
+                // send this group info without any clone cost.
+                let (_, node_id) = should_connect.iter().next().unwrap();
+                self.mailbox.sync_with(*node_id, group_info).await;
+            } else {
+                for (_, node_id) in should_connect {
+                    self.mailbox.sync_with(node_id, group_info.clone()).await;
+                }
+            }
+        }
+        Ok(())
     }
 
     async fn _advance_apply(&self, mut raft: WLockRaft<'_>, applied: Option<u64>) -> RaftContext {
-        // first, update applied value.
-        if let Some(applied) = applied {
-            raft.advance_apply_to(applied);
-        } else {
-            raft.advance_apply();
+        if applied.is_none() {
+            return RaftContext::from_status(self.group_id, raft.status());
         }
+        // first, update applied value.
+        let (old, update) = if let Some(update) = applied {
+            let old = raft.advance_apply_to(update);
+            (old, update)
+        } else {
+            raft.advance_apply()
+        };
         // then, fetch latest status of raft.
         let ctx: RaftContext = RaftContext::from_status(self.group_id, raft.status());
-        self.coprocessor_driver.after_applied(&ctx).await;
+        if old < update {
+            // maybe equal
+            self.coprocessor_driver.after_applied(&ctx).await;
+        }
         ctx
     }
-}
-
-use crate::protos::prelude::prost::Message;
-fn drain_changes(entries: &mut Vec<Entry>) -> Vec<BatchConfChange> {
-    drain_filter(
-        entries,
-        |entry| entry.entry_type() == EntryType::EntryConfChange,
-        |mut entry| {
-            let content = mem::take(&mut entry.data);
-            // noting: maybe generate an empty entry with type `EntryConfChange`
-            // when `auto_leave` in `commit_apply`
-            if content.is_empty() {
-                Some(BatchConfChange::default())
-            } else {
-                BatchConfChange::decode(&content[..]).ok()
-            }
-        },
-    )
-}
-
-fn drain_cmds(entries: &mut Vec<Entry>) -> Vec<Vec<u8>> {
-    drain_filter(
-        entries,
-        |entry| entry.entry_type() == EntryType::EntryCmd,
-        |mut entry| Some(mem::take(&mut entry.data)),
-    )
-}
-
-#[inline]
-fn remove_empty_entry(entries: &mut Vec<Entry>) {
-    drain_filter::<Entry, ()>(entries, |entry| entry.data.is_empty(), |_| None);
 }
 
 fn collect_changes<C: FnMut(EndpointChange)>(

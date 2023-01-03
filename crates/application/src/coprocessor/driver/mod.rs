@@ -109,8 +109,8 @@ impl CoprocessorDriver {
     ///                Actions for Follower & Leader
     ///////////////////////////////////////////////////////////////
 
-    pub fn handle_group_conf_change(&self, ctx: RaftContext, changes: ChangeSet) -> HashSet<PeerID> {
-        let RaftContext { group_id, .. } = &ctx;
+    pub fn handle_group_conf_change(&self, ctx: &RaftContext, changes: ChangeSet) -> HashSet<PeerID> {
+        let RaftContext { group_id, .. } = ctx;
         let group = *group_id;
         let topo = &self.topo;
         let mut incoming = HashSet::with_capacity(changes.len());
@@ -164,13 +164,13 @@ impl CoprocessorDriver {
     }
 
     /// Handle commit log_entry with coprocessors (in serialize).
-    pub async fn apply_log_entries(&self, ctx: RaftContext, entries: Vec<Entry>) {
+    pub async fn apply_log_entry(&self, ctx: &RaftContext, data: Vec<u8>) -> RaftResult<()> {
         // handle and dispatch entry in ConfChange or Normal
         let throughput = self.coprocessor
-            .apply_log_entries(&ctx, &entries, self.listeners.clone())
-            .await;
+            .apply_log_entry(&ctx, data, self.listeners.clone())
+            .await?;
 
-        if throughput == 0 { return; }
+        if throughput == 0 { return Ok(()); }
 
         // if get any changes from listener, log it.
         self.monitor().map(|monitor| {
@@ -186,19 +186,18 @@ impl CoprocessorDriver {
         // 1. Compact raftlog by configured policy, rather than do it each time
         // after committed, for example do compact in schedule.
         // 2. Another optimize is, should do snapshot (make backups) before compact?
-
-        // let _r = store.compact(ctx.applied);
+        Ok(())
     }
 
     /// Apply entry with [EntryType]() on this node.
-    pub async fn apply_cmds(
+    pub async fn apply_command(
         &self,
-        ctx: RaftContext,
-        cmds: Vec<Vec<u8>>,
-    ) {
+        ctx: &RaftContext,
+        command: Vec<u8>,
+    ) -> RaftResult<()> {
         // handle and dispatch commands
         self.coprocessor
-            .apply_cmds(&ctx, &cmds, self.listeners.clone()).await;
+            .apply_command(ctx, command, self.listeners.clone()).await
     }
 
     /// After advance applied index, `applied_index` always smaller or equal to `commit_index`,
@@ -208,12 +207,9 @@ impl CoprocessorDriver {
         ctx: &RaftContext,
     ) {
         let RaftContext { 
-            group_id, 
-            role, 
-            applied, 
             ..
         } = ctx;
-        // TODO
+        // TODO: handle with latest applied index
     }
 
     /// When leader receive raw read_index ctx directly or from

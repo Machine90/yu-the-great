@@ -17,6 +17,8 @@ pub trait RaftService {
 
     async fn append(group: GroupID, append: RaftMsg) -> Response<RaftMsg>;
 
+    async fn append_async(group: GroupID, append: RaftMsg);
+
     async fn append_response(group: GroupID, append_response: RaftMsg);
 
     async fn sync_snapshot(group: GroupID, snapshot: RaftMsg) -> Response<RaftMsg>;

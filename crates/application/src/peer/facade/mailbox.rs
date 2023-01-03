@@ -56,6 +56,11 @@ impl NodeMailbox for MailboxService {
         self.get_group(group)?.recv_append(append).await
     }
 
+    async fn group_append_async(&self, group: GroupID, append: RaftMsg) -> RaftResult<()> {
+        self.get_group(group)?.recv_append_reply_async(append).await;
+        Ok(())
+    }
+
     async fn group_append_response(
         &self,
         group: GroupID,

@@ -3,7 +3,7 @@ use consensus::raft_node::raft_process::RaftProcess;
 use crate::{
     peer::{process::read::ReadyRead, Core}, 
     ConsensusError::{ProposalDropped},
-    RaftMsg, RaftMsgType::MsgReadIndexResp, RaftResult, coprocessor::{read_index_ctx::ReadContext, listener::RaftContext},
+    RaftMsg, RaftMsgType::MsgReadIndexResp, RaftResult, coprocessor::{read_index_ctx::ReadContext},
 };
 
 use super::ReadedState;
@@ -25,22 +25,21 @@ impl Core {
         // When in this case, nothing will be generated in ready. Then read_index judge to be failure with error Nothing.
         let mut ready = raft.step_and_ready(resp)?;
 
-        // maybe has some commit
-        let commit_before_read = self.apply_commit_entry(&mut raft, ready.take_committed_entries());
+        // maybe exists some entries to be apply after follower forward request.
+        // this mechanism guaratee the follower has applied 
+        let applied_by_follower_read = self.apply_commit_entries(
+            &mut raft, 
+            ready.take_committed_entries()
+        ).await;
+
         self.persist_ready(&mut ready).await?;
         // then follower handle read.
         read_ctx.with_ready(ReadyRead::rss(ready.take_read_states()));
         
-        let mut light_ready = raft.advance(ready);
+        let mut light_ready = raft.advance_append(ready);
         let _commit = self.persist_light_ready(&mut light_ready).await?;
-        let _ = raft.advance_apply();
 
-        let group = self.get_group_id();
-        let ctx = RaftContext::from_status(group, raft.status());
-        drop(raft);
-
-        // join the result of applied commit.
-        commit_before_read.join_all().await;
+        let ctx = self._advance_apply(raft, applied_by_follower_read).await;
 
         self.coprocessor_driver.advance_read(&ctx, &mut read_ctx).await?;
         read_ctx.take_readed().ok_or(

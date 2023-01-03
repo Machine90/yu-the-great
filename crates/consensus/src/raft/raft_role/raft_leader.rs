@@ -690,6 +690,9 @@ impl<STORAGE: Storage> LeaderHandler for Raft<STORAGE> {
             return;
         }
         let paused_before_update = responder_progress.is_paused();
+        // `message.index` is followers `last_appended_index` when processing append.
+        // try to update this followers `matched_index` to appended entry index after 
+        // receiving append response.
         if !responder_progress.try_update(message.index) {
             // case 2: receive a out dated message index, and should not update the progress.
             return;
@@ -698,7 +701,7 @@ impl<STORAGE: Storage> LeaderHandler for Raft<STORAGE> {
         responder_progress.next_state(message.index, message.from);
 
         if self.try_commit(self.should_broadcast_commit()) {
-
+            // commit if majority follower response for latest append
         } else if paused_before_update {
             self.send_append(responder);
         }

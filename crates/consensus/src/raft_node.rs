@@ -202,7 +202,7 @@ impl<STORAGE: Storage> RaftNode<STORAGE> {
             self.raft.persist_snapshot(snapshot_index);
         }
         if index != 0 {
-            self.raft.persist_entries(index, term);
+            self.raft. persist_entries(index, term);
         }
     }
 
@@ -228,7 +228,7 @@ impl<STORAGE: Storage> RaftNode<STORAGE> {
     }
 
     #[inline]
-    fn commit_apply(&mut self, applied_index: u64) {
+    fn commit_apply(&mut self, applied_index: u64) -> u64 {
         self.raft.commit_apply(applied_index)
     }
 
@@ -240,7 +240,6 @@ impl<STORAGE: Storage> RaftNode<STORAGE> {
         self.raft.mut_store()
     }
 
-    /// This action will take  committed entries from raft_log and
     fn gen_light_ready(&mut self) -> LightReady {
         let mut light_rd: LightReady = LightReady::default();
         let raft_peer = &mut self.raft;

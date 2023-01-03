@@ -37,16 +37,18 @@ impl Peer {
             self.on_soft_state_change(&soft_state, ss, ChangeReason::RecvHeartbeat).await;
         }
 
-        let commit_by_heartbeat = self.apply_commit_entry(
+        let applied_by_heartbeat = self.apply_commit_entries(
             &mut raft, 
             ready.take_committed_entries()
-        );
+        ).await;
         
-        let mut light_ready = raft.advance(ready);
+        let mut light_ready = raft.advance_append(ready);
+        if !light_ready.committed_entries().is_empty() {
+            crate::error!("ignored commit entries in heartbeat");
+        }
         // maybe generate some commit, then persist it.
         let _ = self.persist_light_ready(&mut light_ready).await?;
-        commit_by_heartbeat.join_all().await;
-        self._advance_apply(raft, None).await;
+        self._advance_apply(raft, applied_by_heartbeat).await;
 
         // keep this code for some heartbeat delay test
         // crate::tokio::time::sleep(std::time::Duration::from_millis(5)).await;

@@ -44,8 +44,8 @@ impl<R> Pipelines<R> {
     pub fn broadcast_with_async_cb<F, Fut>(&mut self, mails: Vec<RaftMsg>, response_handle: F)
     where
         F: Fn(u64, RaftResult<RaftMsg>) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = R> + Send + Sync,
-        R: Send + Sync + 'static,
+        Fut: Future<Output = R> + Send,
+        R: Send + 'static,
     {
         let response_handle = Arc::new(response_handle);
         for mail in mails {

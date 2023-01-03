@@ -1,4 +1,4 @@
-use crate::{coprocessor::ChangeReason, protos::raft_log_proto::Entry, PeerID};
+use crate::{coprocessor::ChangeReason, PeerID};
 use common::protocol::read_state::ReadState;
 use consensus::raft::SoftState;
 use std::io::Result;
@@ -10,7 +10,7 @@ use super::{Acl, RaftContext};
 pub trait RaftListener: Acl + Sync {
     /// Perform write behavior in raft, when propose and commit some entries to raft,
     /// all these entries will be passed in. Suggest return changed bytes as result.
-    async fn handle_write(&self, ctx: &RaftContext, entries: &[Entry]) -> Result<i64>;
+    async fn handle_write(&self, ctx: &RaftContext, data: &[u8]) -> Result<i64>;
 
     /// Perform read behavior in raft, when `read_index` request received from `client`
     /// (local or remote), the raft coprocessor will call this interface, and pass in

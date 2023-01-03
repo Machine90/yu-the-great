@@ -25,16 +25,16 @@ impl Peer {
         }
 
         self.persist_ready(&mut ready).await?;
-        self.apply_commit_entry(
+        let applied_by_vote = self.apply_commit_entries(
             &mut raft, 
             ready.take_committed_entries()
-        ).join_all().await;
+        ).await;
         // a leader recv the vote, then just reject it.
         let reject_as_leader = at_most_one_msg(ready.take_messages());
 
-        let mut light_ready = raft.advance(ready);
+        let mut light_ready = raft.advance_append(ready);
         let _ = self.persist_light_ready(&mut light_ready);
-        self._advance_apply(raft, None).await;
+        self._advance_apply(raft, applied_by_vote).await;
 
         // recv vote as follower, maybe response if remote candidate's term >= my term
         let response_as_follower = at_most_one_msg(light_ready.take_messages());

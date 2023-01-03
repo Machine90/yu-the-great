@@ -187,7 +187,7 @@ where
     }
 
     #[inline]
-    pub fn update_applied_index(&mut self, applied: u64) {
+    pub(crate) fn update_applied_index(&mut self, applied: u64) {
         self.set_applied(applied);
     }
 
@@ -195,7 +195,7 @@ where
         if index == 0 { return; }
         if index > min(self.quorum_committed, self.persisted) || index < self.applied {
             panic!(
-                "applied: {} should always less than quorum_committed: {} and persisted: {}, and larger than origin applied({})", 
+                "applied: {} should always less than quorum_committed: {} and persisted: {}, and not less than origin applied({})", 
                 index, self.quorum_committed, self.persisted, self.applied
             );
         }
@@ -210,7 +210,7 @@ where
             // conflict index should not be larger than last index (in both unstable and stable)
             return (index, None);
         }
-        while index > 0 {
+        loop {
             match self.term(index) {
                 Ok(current_term) => {
                     if current_term <= term {
@@ -226,7 +226,6 @@ where
                 }
             }
         }
-        (index, None)
     }
 
     /// Finds the first index of the conflict.
@@ -462,7 +461,7 @@ where
     }
 
     /// Fetch all committed (or persisted) entries from `stable` storage
-    /// from given start index.
+    /// from given start index to min of `quorum_committed` or `persisted`.
     /// ## Params
     /// * from_index: the index passed in, should not be larger than `quorum_committed` and `persisted`
     pub fn entries_stable_since(&self, from_index: u64) -> Option<Vec<Entry>> {

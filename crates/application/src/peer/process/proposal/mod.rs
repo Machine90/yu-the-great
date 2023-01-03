@@ -122,19 +122,18 @@ impl Peer {
         let commit_proposal = self.persist_ready(&mut ready).await?;
         let appends = msgs(ready.take_messages());
         let role = raft.role();
-        let mut light_ready = raft.advance(ready);
+        let mut light_ready = raft.advance_append(ready);
         
         // maybe generate some committed entry after advance ready after recv propose.
-        // e.g. single node group, leader commit immediately without compute quorum's commit
-        // after recv response from appends.
-        let commit_standalone = self.apply_commit_entry(&mut raft, light_ready.take_committed_entries());
+        // e.g. single node group, leader commit immediately (when `advance_append` after ready) 
+        // without compute quorum's commit after recv response from appends.
+        let applied_standalone = self.apply_commit_entries(
+            &mut raft, 
+            light_ready.take_committed_entries()
+        ).await;
+        
         let redirect_or_commit = msgs(light_ready.take_messages());
-        raft.advance_apply();
-        let group = self.get_group_id();
-        let ctx: RaftContext = RaftContext::from_status(group, raft.status());
-        drop(raft);
-
-        commit_standalone.join_all().await;
+        let ctx = self._advance_apply(raft, applied_standalone).await;
 
         // maybe update commit
         let commit = self.persist_light_ready(&mut light_ready).await?;

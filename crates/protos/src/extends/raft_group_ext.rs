@@ -271,6 +271,23 @@ impl GroupProto {
         self
     }
 
+    pub fn add_voter(&mut self, voter: &Node<u64>) -> bool {
+        let id = voter.id;
+        let added = self.confstate.as_mut().map(|cs| {
+            for v in cs.voters.iter() {
+                if id == *v {
+                    return false;
+                }
+            }
+            cs.voters.push(id);
+            true
+        }).unwrap_or(false);
+        if added {
+            self.add_node(voter.clone());
+        }
+        added
+    }
+
     #[inline]
     pub fn get_voters(&self) -> Option<HashSet<u64>> {
         self.confstate.as_ref().map(|cs| {

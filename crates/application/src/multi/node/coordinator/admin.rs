@@ -21,7 +21,7 @@ use components::{
 use consensus::raft::DUMMY_ID;
 use std::{
     collections::{HashMap, HashSet},
-    hash::Hash
+    hash::Hash, io
 };
 
 #[crate::async_trait]
@@ -34,19 +34,19 @@ impl<S: GroupStorage> Acl for NodeCoordinator<S> {
 
 #[crate::async_trait]
 impl<S: GroupStorage + Clone> AdminListener for NodeCoordinator<S> {
-    async fn handle_cmds(
+    async fn handle_command(
         &self,
         _: &RaftContext,
-        cmds: &Vec<Vec<u8>>
-    ) {
-        for cmd in cmds {
-            let assignments = bincode::deserialize(cmd);
-            if assignments.is_err() {
-                continue;
-            }
-            // receive correct assignments and apply them at local.
-            self.apply_assignments(assignments.unwrap()).await;
-        }
+        command: &Vec<u8>
+    ) -> io::Result<()> {
+        let assignments = bincode::deserialize(command)
+            .or(Err(io::Error::new(
+                io::ErrorKind::InvalidData, 
+                "invalid assignment"
+            )))?;
+        // receive correct assignments and apply them at local.
+        self.apply_assignments(assignments).await;
+        Ok(())
     }
 }
 

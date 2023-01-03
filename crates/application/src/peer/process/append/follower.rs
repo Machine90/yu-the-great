@@ -14,7 +14,7 @@ use crate::{
     },
     torrent::runtime,
     ConsensusError, RaftMsg,
-    RaftMsgType::MsgSnapshot,
+    RaftMsgType::{MsgSnapshot, MsgAppend},
     RaftResult,
 };
 
@@ -48,6 +48,21 @@ impl Peer {
         Ok(())
     }
 
+    #[inline]
+    pub async fn recv_append(&self, append: RaftMsg) -> RaftResult<RaftMsg> {
+        self._handle_append(append).await
+    }
+
+    pub async fn recv_append_reply_async(&self, append: RaftMsg) {
+        let append_resp = self._handle_append(append).await;
+        if let Ok(append_resp) = append_resp {
+            let result = self.mailbox.send_append_response(append_resp).await;
+            if let Err(e) = result {
+                crate::warn!("{:?}", e);
+            }
+        }
+    }
+
     /// ## Definition
     /// Recv append message as [Follower](consensus::raft::raft_role::RaftRole::Follower),
     /// then response append_resp message
@@ -57,17 +72,21 @@ impl Peer {
     /// ### Returns
     /// * *Ok(append_resp)*: Message in [MsgAppendResponse](protos::raft_payload_proto::MessageType::MsgAppendResponse) type
     /// * *Err(e)*:
-    pub async fn recv_append(&self, append: RaftMsg) -> RaftResult<RaftMsg> {
-        let mut raft = self.raft_group.wl_raft().await;
+    async fn _handle_append(&self, append: RaftMsg) -> RaftResult<RaftMsg> {
+        assert!(append.msg_type() == MsgAppend, "require msg type `MsgAppend`");
+        let mut raft = self.wl_raft().await;
 
         let Status { soft_state, .. } = raft.status();
 
         let mut ready = raft.step_and_ready(append)?;
         let commit_in_hs = self.core.persist_ready(&mut ready).await?;
+        let mut follower_applied = None;
+        
         if !ready.committed_entries().is_empty() {
-            self.apply_commit_entry(&mut raft, ready.take_committed_entries())
-                .join_all()
-                .await;
+            follower_applied = self.apply_commit_entries(
+                &mut raft, 
+                ready.take_committed_entries()
+            ).await;
         }
 
         if let Some(ss) = ready.soft_state_ref() {
@@ -75,9 +94,18 @@ impl Peer {
                 .await;
         }
 
-        let mut lr = raft.advance(ready);
+        let mut lr = raft.advance_append(ready);
+        if !lr.committed_entries().is_empty() {
+            let follower_applied_after_append = self.apply_commit_entries(
+                &mut raft, 
+                lr.take_committed_entries()
+            ).await;
+            follower_applied = follower_applied.max(follower_applied_after_append);
+        }
         let committed = self.core.persist_light_ready(&mut lr).await?;
-        drop(raft);
+        
+        self._advance_apply(raft, follower_applied).await;
+        
         let committed = committed.or(commit_in_hs);
         if let Some(commit) = committed {
             crate::trace!("follower commit index {:?}", commit);

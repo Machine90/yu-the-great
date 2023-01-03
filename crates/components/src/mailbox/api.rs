@@ -23,6 +23,8 @@ pub trait NodeMailbox: Send + Sync {
 
     async fn group_append(&self, group: GroupID, append: RaftMsg) -> RaftResult<RaftMsg>;
 
+    async fn group_append_async(&self, group: GroupID, append: RaftMsg) -> RaftResult<()>;
+
     async fn group_append_response(
         &self,
         group: GroupID,
@@ -101,6 +103,11 @@ pub trait MailBox: Send + Sync {
     /// waiting for msg append response in this call.
     async fn send_append(&self, append: RaftMsg) -> RaftResult<RaftMsg>;
 
+    /// Send msg append from leader to follower, unlike method `send_append`,
+    /// this approach only send message to target without waiting for response,
+    /// the follower would response this append in future.
+    async fn send_append_async(&self, append: RaftMsg) -> RaftResult<()>;
+
     /// Send msg append response from follower to leader.
     async fn send_append_response(&self, append_response: RaftMsg) -> RaftResult<()>;
 
@@ -155,6 +162,13 @@ impl MailBox for dyn GroupMailBox {
         let append_resp = self.group_append(self.get_group_id(), append).await?;
         assert_eq!(append_resp.msg_type(), RaftMsgType::MsgAppendResponse);
         Ok(append_resp)
+    }
+
+    #[inline]
+    async fn send_append_async(&self, append: RaftMsg) -> RaftResult<()> {
+        assert_eq!(append.msg_type(), RaftMsgType::MsgAppend);
+        self.group_append_async(self.get_group_id(), append).await?;
+        Ok(())
     }
 
     async fn send_append_response(&self, append_response: RaftMsg) -> RaftResult<()> {

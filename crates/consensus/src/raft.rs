@@ -193,7 +193,8 @@ impl<STORAGE: Storage> Raft<STORAGE> {
     }
 
     #[doc(hidden)]
-    pub fn apply_conf_changes(&mut self, batch_change: &BatchConfChange) -> Result<ConfState> {
+    pub fn apply_conf_changes(&mut self, batch_change: &BatchConfChange) -> Result<(ConfState, ConfState)> {
+        let ori_cs = self.tracker.to_conf_state();
         let mut changer = ClusterChanger::new(&self.tracker);
         // judge this batch is joint operation or simple change, then 
         // handle them in the right way.
@@ -211,7 +212,8 @@ impl<STORAGE: Storage> Raft<STORAGE> {
         self.tracker
             .apply_cluster_changes(cluster, changes, self.raft_log.last_index().unwrap());
         // finally, broadcast or append changes (maybe some commit) to others if Leader apply the changes.
-        Ok(self.post_cluster_conf_change())
+        let new_cs = self.post_cluster_conf_change();
+        Ok((ori_cs, new_cs))
     }
 
     fn post_cluster_conf_change(&mut self) -> ConfState {
@@ -232,7 +234,7 @@ impl<STORAGE: Storage> Raft<STORAGE> {
     }
 
     #[inline]
-    pub fn commit_apply(&mut self, update_applied: u64) {
+    pub fn commit_apply(&mut self, update_applied: u64) -> u64 {
         let origin_applied = self.raft_log.get_applied();
         self.raft_log.update_applied_index(update_applied);
 
@@ -253,6 +255,7 @@ impl<STORAGE: Storage> Raft<STORAGE> {
             self.pending_conf_index = self.raft_log.last_index().unwrap();
             debug!("initiating automatic transition out of joint cluster"; "cluster info" => ?self.tracker.cluster_info());
         }
+        origin_applied
     }
 
     /// Since current raft received message from other rafts in the cluster,
