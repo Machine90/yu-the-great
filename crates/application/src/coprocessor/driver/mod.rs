@@ -205,11 +205,12 @@ impl CoprocessorDriver {
     pub async fn after_applied(
         &self, 
         ctx: &RaftContext,
-    ) {
+    ) -> bool {
         let RaftContext { 
             ..
         } = ctx;
         // TODO: handle with latest applied index
+        false
     }
 
     /// When leader receive raw read_index ctx directly or from

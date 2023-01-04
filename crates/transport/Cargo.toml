@@ -11,7 +11,7 @@ rpc_transport = ["tarpc_ext"]
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 futures = { version = "0.3" }
-slog = { version = "2.7" }
+slog = { version = "2.7", features = ["max_level_trace"] }
 
 components = { path = "../components", features = ["mailbox"]}
 common = { path = "../common" }

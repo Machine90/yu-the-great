@@ -25,7 +25,7 @@ transport = { path = "../transport", default-features = false }
 byteorder = { version = "1.4.3" }
 serde = { version = "1.0", features = ["derive"] }
 
-slog = { version = "2.7" }
+slog = { version = "2.7", features = ["max_level_trace"] }
 futures = { version = "0.3" }
 
 # for system metrics collect

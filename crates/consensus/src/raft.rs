@@ -384,7 +384,7 @@ impl<STORAGE: Storage> Raft<STORAGE> {
             _ => (),
         }
 
-        trace!("{me} starting a new election", me = self.id; "term" => self.term);
+        debug!("{me} starting a new election", me = self.id; "term" => self.term);
         if transfer_leader {
             self.campaign(CAMPAIGN_TRANSFER); // transfer leader
         } else if self.enable_pre_vote {
@@ -516,7 +516,7 @@ impl<STORAGE: Storage> Raft<STORAGE> {
         self.current_raft_role = RaftRole::PreCandidate;
         self.tracker.reset_votes();
         self.leader_id = DUMMY_ID;
-        trace!(
+        debug!(
             "{me} become pre-candidate at term: {term}",
             me = self.id,
             term = self.term
@@ -534,7 +534,7 @@ impl<STORAGE: Storage> Raft<STORAGE> {
         let me = self.id;
         self.vote = me;
         self.current_raft_role = RaftRole::Candidate;
-        trace!(
+        debug!(
             "{me} become candidate at term: {term}",
             me = me,
             term = term

@@ -14,7 +14,7 @@ storage = []
 multi = []
 
 [dependencies]
-slog = { version = "2.7" }
+slog = { version = "2.7", features = ["max_level_trace"] }
 async-trait = { version = "0.1.7" }
 serde = { version = "1.0", features = ["derive"] }
 

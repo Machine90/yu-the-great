@@ -378,10 +378,20 @@ where
     }
 
     pub fn append(&mut self, entries: &[Entry]) -> u64 {
-        crate::trace!(
-            "Entries being appended to unstable list";
-            "ents" => ?entries,
-        );
+        let entry_num = entries.len();
+        if entry_num < 7 {
+            crate::trace!(
+                "Entries being appended to unstable list";
+                "ents" => ?entries,
+            );
+        } else {
+            let f = &entries[0];
+            let l = &entries[entry_num - 1];
+            crate::trace!(
+                "Entries being appended to unstable list, from {:?} to {:?},, total: {}",
+                (f.term, f.index), (l.term, l.index), entry_num
+            );
+        }
 
         if entries.is_empty() {
             return self.last_index().unwrap();
@@ -428,7 +438,6 @@ where
         }
         let calculated_committed = m_index + m_entries.len() as u64;
         self.commit_to(min(m_committed, calculated_committed));
-        crate::trace!("last_append_index: {:?}", calculated_committed);
         Some((conflict_index, calculated_committed))
     }
 

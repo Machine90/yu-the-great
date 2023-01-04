@@ -385,7 +385,10 @@ impl Core {
         let ctx: RaftContext = RaftContext::from_status(self.group_id, raft.status());
         if old < update {
             // maybe equal
-            self.coprocessor_driver.after_applied(&ctx).await;
+            let should_compact = self.coprocessor_driver.after_applied(&ctx).await;
+            if should_compact {
+                // TODO: do compact log
+            }
         }
         ctx
     }

@@ -17,7 +17,7 @@ use crate::torrent::{runtime};
 use crate::{
     NodeID,
     tokio::{sync::mpsc::{channel, Sender, error::SendError}, time::timeout},
-    RaftMsg, RaftResult, RaftMsgType::{MsgSnapshot, MsgAppendResponse, MsgTimeoutNow}
+    RaftMsg, RaftResult, RaftMsgType::{MsgSnapshot, MsgAppendResponse}
 };
 
 /// Commit contents: 
@@ -162,8 +162,8 @@ impl Peer {
                 let timer = Instant::now();
                 let ne = core._try_appending(appends).await;
                 trace!(
-                    "finish syncing {:?} appends after {:?}, total elapsed: {:?}ms, next: {:?}", 
-                    hint, total, timer.elapsed().as_millis(), ne
+                    "finish syncing {:?} appends when {}, total elapsed: {:?}ms, next: {:?}", 
+                    total, hint, timer.elapsed().as_millis(), ne
                 );
             });
         }
@@ -361,11 +361,6 @@ impl Core {
 
     /// Handle append response at Leader side when after received a message
     /// from a Follower. Then generate next state after judgement.
-    /// ### Diagram
-    /// Diagram of handle append response:
-    /// ```mermaid
-    /// todo
-    /// ```
     async fn _handle_append_response(&self, append_resp: RaftMsg) -> RaftResult<NextState> {
         assert_eq!(append_resp.msg_type(), MsgAppendResponse);
         let mut wraft = self.wl_raft().await;
@@ -412,7 +407,7 @@ impl Core {
 
         let committed = committed.or(commit_in_hs);
         if let Some(commit) = &committed {
-            crate::debug!("leader commit in: {:?} after tally append_response.", commit);
+            crate::debug!("leader commit to: {:?} after majority received append", commit);
         }
 
         Ok(Self::_next_append_step(committed, appends, supplement))
@@ -447,17 +442,4 @@ impl Core {
             }
         }
     }
-}
-
-fn _find_timout_msg(msgs: &mut Vec<RaftMsg>) -> Option<RaftMsg> {
-    let mut found = None;
-    for i in 0..msgs.len() {
-        let msg_type = msgs[i].msg_type();
-        if msg_type == MsgTimeoutNow {
-            let timeout = msgs.remove(i);
-            found = Some(timeout);
-            break;
-        }
-    }
-    found
 }

@@ -78,7 +78,7 @@ mod tests {
     fn set_logger(module: &str) {
         let logger = conf_file_logger(
             format!("./single_{module}.log"),
-            LoggerConfig::in_level(LogLevel::Debug),
+            LoggerConfig::in_level(LogLevel::Trace),
         );
         init_logger_factory(LogFactory::default().use_logger(logger));
     }
@@ -122,17 +122,7 @@ mod tests {
     };
 
     /// Step 1: we define a struct called "HelloWorld"
-    struct HelloWorld(NodeID);
-    impl HelloWorld {
-        /// HelloWorld will take out committed entry data
-        /// supposed we propose some names to it.
-        fn sayhello(&self, data: &[u8]) -> i64 {
-            if let Ok(name) = String::from_utf8(data.to_vec()) {
-                println!("[App] Node {}: Hello {}", self.0, name);
-            }
-            data.len() as i64
-        }
-    }
+    struct HelloWorld;
 
     /// always enable by using default, to control the access privilege of this listener.
     impl Acl for HelloWorld {}
@@ -142,12 +132,18 @@ mod tests {
     #[crate::async_trait]
     impl RaftListener for HelloWorld {
         /// To handle committed log entry at local.
-        async fn handle_write(&self, _: &RaftContext, data: &[u8]) -> Result<i64> {
-            Ok(self.sayhello(data))
+        async fn handle_write(&self, ctx: &RaftContext, data: &[u8]) -> Result<i64> {
+            let RaftContext { node_id, .. } = ctx;
+            if let Ok(name) = String::from_utf8(data.to_vec()) {
+                println!("[App] Node {}: Hello {}", node_id, name);
+            }
+            Ok(data.len() as i64)
         }
 
-        async fn handle_read(&self, _: &RaftContext, _: &mut ReadState) {
+        async fn handle_read(&self, ctx: &RaftContext, read: &mut ReadState) {
             // ignore this.
+            let RaftContext { node_id, .. } = ctx;
+            println!("[App] Node {}: Read {:?}", node_id, String::from_utf8(read.request_ctx.clone()));
         }
     }
 
@@ -159,7 +155,7 @@ mod tests {
         let node = Builder::new(group.clone(), conf)
             .with_raftlog_store(|group| provider::mem_raftlog_store(group)) // save raft's log in memory
             .use_default() // default to tick it and use RPC transport.
-            .add_raft_listener(HelloWorld(node_id)) // add this listener to coprocessor
+            .add_raft_listener(HelloWorld) // add this listener to coprocessor
             .build() // ready
             .unwrap();
         // run a daemon to receive RaftMessage between peers in the group.
@@ -235,6 +231,14 @@ mod tests {
                     timer.elapsed().as_millis()
                 );
                 assert!(proposal.is_ok());
+
+                let r = p.read_async(name.as_bytes().to_vec()).await;
+                if let Ok(r) = r {
+                    let ReadState { index, request_ctx } = r;
+                    println!("read => {index} {:?}", String::from_utf8(request_ctx));
+                } else {
+                    eprintln!("{:?}", r.err());
+                }
             });
             ts.push(t);
         }
@@ -254,7 +258,7 @@ mod tests {
 
         let endpoint4 = Node::parse(4, "raft://localhost:8084").unwrap();
         group.add_voter(&endpoint4);
-        let _ = _build_node(4, group);
+        let peer4 = _build_node(4, group).get_local_client();
         let to_remove = 2;
         // add 4 and remove 2
         let changes = ChangeSet::new()
@@ -271,7 +275,10 @@ mod tests {
         }
         sleep(Duration::from_millis(100)).await;
         let _ = leader.propose_async(b"Zhu 6".to_vec()).await;
+        let _ = peer4.propose_async(b"Xie 7".to_vec()).await;
         let stat = leader.status(true).await;
         println!("{:#?}", stat);
+        let _ = peer4.transfer_leader_async(4).await;
+        println!("peer4 transfered: {:?}", peer4.role().await);
     }
 }

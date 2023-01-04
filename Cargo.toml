@@ -27,7 +27,6 @@ common = { path = "crates/common", optional = true }
 components = { path = "crates/components", optional = true }
 consensus = { path = "crates/consensus", optional = true }
 application = { path = "crates/application", optional = true }
-aquamarine = "0.1"
 
 [dev-dependencies]
 common = { path = "crates/common" }

@@ -169,12 +169,8 @@ impl Peer {
                     // if still applying backups, then move task to another coroutine. and return immediately.
                     runtime::spawn(async move {
                         // try to join the transferring task.
-                        let snap_stat = transferring.await;
-                        if let Err(e) = snap_stat {
-                            crate::error!("join the backup transferring task failed, see: {:?}", e);
-                            return;
-                        }
-                        let snap_stat = snap_stat.unwrap();
+                        let snap_stat = transferring.await
+                            .unwrap_or(Some(SnapshotStatus::Failure));
                         if snap_stat.is_none() {
                             // means status has been notified success in task.
                             return;
