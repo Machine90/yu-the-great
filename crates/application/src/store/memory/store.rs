@@ -113,4 +113,12 @@ impl GroupStorage for PeerMemStore {
     fn group_apply_snapshot(&self, group: u32, snapshot: SnapshotMetadata) -> crate::RaftResult<()> {
         self.db.wlock().apply_snapshot(snapshot)
     }
+
+    fn group_update_applid(&self, _: u32, _: u64) {
+        // ignore
+    }
+
+    fn group_applid(&self, _: u32) -> Option<u64> {
+        None
+    }
 }

@@ -193,7 +193,6 @@ async fn conf_change() {
         let mut cs = stat.unwrap().conf_state.unwrap();
         if !cs.voters_outgoing.is_empty() {
             cs.voters_outgoing.sort();
-            println!("{:?}", cs.voters_outgoing);
             assert_eq!(cs.voters_outgoing, vec![1,2,3]);
         }
         cs.voters.sort();

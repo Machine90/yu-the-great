@@ -25,16 +25,9 @@ pub trait GroupStorage: Send + Sync + 'static {
         limit: Option<u64>,
     ) -> Result<Vec<Entry>>;
 
-    #[inline]
-    fn group_update_applid(&self, group: u32, applied: u64) {
-        // TODO: should implement this method?
-    }
+    fn group_update_applid(&self, group: u32, applied: u64);
 
-    #[inline]
-    fn group_applid(&self, group: u32) -> Option<u64> {
-        // TODO: should implement this method?
-        None
-    }
+    fn group_applid(&self, group: u32) -> Option<u64>;
 
     fn group_term(&self, group: u32, index: u64) -> Result<u64>;
 
