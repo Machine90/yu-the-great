@@ -254,6 +254,15 @@ impl GroupProto {
         updated
     }
 
+    pub fn get_applied(&self) -> Option<u64> {
+        const DUMMY_APPLIED: u64 = 0;
+        if self.applied == DUMMY_APPLIED {
+            None
+        } else {
+            Some(self.applied)
+        }
+    }
+
     #[inline]
     pub fn set_key_range<K: AsRef<[u8]>>(&mut self, range: Range<K>) -> &mut Self {
         let Range { start, end } = range;

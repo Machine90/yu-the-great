@@ -6,7 +6,7 @@
 use consensus::raft_node::{raft_process::RaftProcess, status::Status, SnapshotStatus, raft_functions::RaftFunctions};
 
 use crate::{
-    coprocessor::{driver::ApplyState, ChangeReason, listener::RaftContext},
+    coprocessor::{driver::ApplySnapshot, ChangeReason, listener::RaftContext},
     mailbox::api::MailBox,
     peer::{
         process::{at_most_one_msg, exactly_one_msg},
@@ -79,15 +79,13 @@ impl Peer {
         let Status { soft_state, .. } = raft.status();
 
         let mut ready = raft.step_and_ready(append)?;
-        let commit_in_hs = self.core.persist_ready(&mut ready).await?;
-        let mut follower_applied = None;
+        let commit_before_append = self.core.persist_ready(&mut ready).await?;
         
-        if !ready.committed_entries().is_empty() {
-            follower_applied = self.apply_commit_entries(
-                &mut raft, 
-                ready.take_committed_entries()
-            ).await;
-        }
+        let (complete, follower_applied) = self.apply_commit_entries(
+            &mut raft, 
+            ready.take_committed_entries()
+        ).await;
+        self._advance_apply_to(&mut raft, follower_applied, complete).await;
 
         if let Some(ss) = ready.soft_state_ref() {
             self.on_soft_state_change(&soft_state, ss, ChangeReason::RecvAppend)
@@ -95,18 +93,13 @@ impl Peer {
         }
 
         let mut lr = raft.advance_append(ready);
-        if !lr.committed_entries().is_empty() {
-            let follower_applied_after_append = self.apply_commit_entries(
-                &mut raft, 
-                lr.take_committed_entries()
-            ).await;
-            follower_applied = follower_applied.max(follower_applied_after_append);
-        }
-        let committed = self.core.persist_light_ready(&mut lr).await?;
-        
-        self._advance_apply(raft, follower_applied).await;
-        
-        let committed = committed.or(commit_in_hs);
+        let (complete, applied_after_append) = self.apply_commit_entries(
+            &mut raft, 
+            lr.take_committed_entries()
+        ).await;
+        self._finish_and_apply_to(raft, applied_after_append, complete, false).await;
+
+        let committed = self.core.persist_light_ready(&mut lr).await?.or(commit_before_append);
         if let Some(commit) = committed {
             crate::trace!("follower commit index {:?}", commit);
         }
@@ -160,11 +153,11 @@ impl Peer {
         if let Some(apply_state) = apply_snapshot {
             // receive snapshot and handled it.
             match apply_state {
-                ApplyState::Applied(status) => {
+                ApplySnapshot::Applied(status) => {
                     self.report_snap_status(status).await?;
                     Ok(response)
                 }
-                ApplyState::Applying(transferring) => {
+                ApplySnapshot::Applying(transferring) => {
                     let core = self.core.clone();
                     // if still applying backups, then move task to another coroutine. and return immediately.
                     runtime::spawn(async move {

@@ -11,7 +11,6 @@ use crate::{
     ConsensusError, RaftMsg,
     RaftMsgType::MsgPropose,
     RaftResult, 
-    coprocessor::listener::RaftContext,
 };
 use common::protocol::proposal::Proposal;
 use consensus::{
@@ -29,7 +28,7 @@ enum RouteProposal {
     /// Has some commit as single leader.
     Commit(u64, Option<Vec<RaftMsg>>),
     /// Neither append nor commit, it's a issue?
-    Pending(RaftContext),
+    Pending,
 }
 
 impl Peer {
@@ -107,8 +106,7 @@ impl Peer {
                 }
                 Ok(Proposal::Commit(idx))
             }
-            RouteProposal::Pending(ctx) => {
-                warn!("nothing to commit after step proposal: {:?}", ctx);
+            RouteProposal::Pending => {
                 Ok(Proposal::Pending)
             }
         };
@@ -127,17 +125,16 @@ impl Peer {
         // maybe generate some committed entry after advance ready after recv propose.
         // e.g. single node group, leader commit immediately (when `advance_append` after ready) 
         // without compute quorum's commit after recv response from appends.
-        let applied_standalone = self.apply_commit_entries(
+        let (complete, applied_standalone) = self.apply_commit_entries(
             &mut raft, 
             light_ready.take_committed_entries()
         ).await;
         
         let redirect_or_commit = msgs(light_ready.take_messages());
-        let ctx = self._advance_apply(raft, applied_standalone).await;
+        self._finish_and_apply_to(raft, applied_standalone, complete, false).await;
 
         // maybe update commit
-        let commit = self.persist_light_ready(&mut light_ready).await?;
-        let commit = commit.or(commit_proposal);
+        let commit = self.persist_light_ready(&mut light_ready).await?.or(commit_proposal);
         let next_step = if !appends.is_empty() && role == RaftRole::Leader {
             // if leader has some append to broadcast.
             RouteProposal::Broadcast(appends)
@@ -152,14 +149,14 @@ impl Peer {
                 RouteProposal::Commit(commit.unwrap(), Some(redirect_or_commit))
             } else {
                 // not commit as leader
-                RouteProposal::Pending(ctx)
+                RouteProposal::Pending
             }
         } else {
             // not append and not redirect, always handle propose as standalone leader.
             if let Some(commit) = commit {
                 RouteProposal::Commit(commit, None)
             } else {
-                RouteProposal::Pending(ctx)
+                RouteProposal::Pending
             }
         };
         Ok(next_step)

@@ -379,10 +379,11 @@ impl Core {
         
         // leader maybe update it's commit after majority append response with next 
         // commit value, then new entries from last 
-        let applied_before = self.apply_commit_entries(
+        let (complete, applied_before) = self.apply_commit_entries(
             &mut wraft, 
             ready.take_committed_entries()
         ).await;
+        self._advance_apply_to(&mut wraft, applied_before, complete).await;
 
         // try persist ready
         let commit_in_hs = self.persist_ready(&mut ready).await?;
@@ -394,7 +395,7 @@ impl Core {
         let committed = self.persist_light_ready(&mut light_rd).await?;
 
         // leader apply entries after advance append
-        let applied_after = self.apply_commit_entries(
+        let (complete, applied_after) = self.apply_commit_entries(
             &mut wraft, 
             light_rd.take_committed_entries()
         ).await;
@@ -403,7 +404,7 @@ impl Core {
         // before advance ready via method apply_commit_entry. 
         // e.g. append entries to new added node.
         let supplement = msgs(light_rd.take_messages());
-        self._advance_apply(wraft, applied_after.or(applied_before)).await;
+        self._finish_and_apply_to(wraft, applied_after, complete, false).await;
 
         let committed = committed.or(commit_in_hs);
         if let Some(commit) = &committed {

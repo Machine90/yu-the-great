@@ -21,7 +21,7 @@ use crate::{
     RaftMsg, RaftResult,
 };
 use crate::{
-    coprocessor::{driver::ApplyState, ChangeReason},
+    coprocessor::{driver::ApplySnapshot, ChangeReason},
     protos::{
         prelude::BatchConfChange,
         raft_log_proto::{Entry, EntryType, HardState},
@@ -222,7 +222,7 @@ impl Core {
         ctx: &RaftContext,
         snap_from: NodeID,
         mut snapshot: Snapshot,
-    ) -> RaftResult<ApplyState> {
+    ) -> RaftResult<ApplySnapshot> {
         // first, try apply this snapshot request to store, maybe reject if
         // snap out of date. if approved, means this peer's log entries is expired,
         // then just feel free to clear them.
@@ -241,7 +241,7 @@ impl Core {
                 .accepted_snapshot(snap_from, snapshot.clone())
                 .await?;
         } else {
-            return Ok(ApplyState::Applied(SnapshotStatus::Failure));
+            return Ok(ApplySnapshot::Applied(SnapshotStatus::Failure));
         }
 
         // step2: then do really accept snapshot items, for example blocking incoming
@@ -256,7 +256,7 @@ impl Core {
             .await;
 
         match apply_state {
-            ApplyState::Applied(status) if status == SnapshotStatus::Finish => {
+            ApplySnapshot::Applied(status) if status == SnapshotStatus::Finish => {
                 // if finished receive backups, then apply to raft log.
                 crate::debug!(
                     "finish transferring backup in-place, result is: {:?}",
@@ -268,13 +268,14 @@ impl Core {
         Ok(apply_state)
     }
 
+    /// Apply entries to 
     async fn apply_commit_entries(
         &self,
         raft: &mut WLockRaft<'_>,
         entries: Vec<Entry>,
-    ) -> Option<u64> {
+    ) -> (bool, Option<u64>) {
         if entries.is_empty() {
-            return None;
+            return (true, None);
         }
 
         let cp_driver = self.coprocessor_driver.as_ref();
@@ -282,6 +283,7 @@ impl Core {
         let ctx = RaftContext::from_status(group_id, raft.status());
 
         let mut last_applied = None;
+        let mut complete = true;
         for mut entry in entries {
             let index = entry.index;
             let content = mem::take(&mut entry.data);
@@ -304,12 +306,20 @@ impl Core {
                 }
             };
             if let Err(e) = applied_result {
-                crate::warn!("failed to apply entry-{index} to listeners, see: {:?}", e);
+                // TODO: how to handle if apply log failure, for example disk unavailable.
+                // Some discussions about this concern:
+                // 1. https://groups.google.com/g/raft-dev/c/fbwv8-qMFYE?pli=1
+                // 2. https://stackoverflow.com/questions/54938499/how-to-handle-the-saving-failure-after-raft-committed
+                // 3. https://github.com/hashicorp/raft/issues/307
+                // The conclusion is that panic if apply log failed, then shutdown the node.
+                // Before shutdown, we should record last applied.
+                crate::error!("failed to apply entry-{index} to listeners, see: {:?}", e);
+                complete = false;
                 break;
             }
             last_applied = Some(index);
         }
-        last_applied
+        (complete, last_applied)
     }
 
     async fn _apply_conf_change(
@@ -370,9 +380,27 @@ impl Core {
         Ok(())
     }
 
-    async fn _advance_apply(&self, mut raft: WLockRaft<'_>, applied: Option<u64>) -> RaftContext {
+    /// Finish process and try updating last apply index to given value. 
+    /// Then release the raft lock.
+    #[inline]
+    async fn _finish_and_apply_to(
+        &self, 
+        mut raft: WLockRaft<'_>, 
+        applied: Option<u64>, 
+        has_complete: bool,
+        fetch_context: bool
+    ) -> Option<RaftContext> {
+        let ctx = self._advance_apply_to(&mut raft, applied, has_complete).await;
+        if fetch_context {
+            ctx.or(Some(RaftContext::from_status(self.group_id, raft.status())))
+        } else {
+            None
+        }
+    }
+
+    async fn _advance_apply_to(&self, raft: &mut WLockRaft<'_>, applied: Option<u64>, has_complete: bool) -> Option<RaftContext> {
         if applied.is_none() {
-            return RaftContext::from_status(self.group_id, raft.status());
+            return None;
         }
         // first, update applied value.
         let (old, update) = if let Some(update) = applied {
@@ -382,15 +410,34 @@ impl Core {
             raft.advance_apply()
         };
         // then, fetch latest status of raft.
-        let ctx: RaftContext = RaftContext::from_status(self.group_id, raft.status());
         if old < update {
             // maybe equal
+            let ctx: RaftContext = RaftContext::from_status(self.group_id, raft.status());
             let should_compact = self.coprocessor_driver.after_applied(&ctx).await;
-            if should_compact {
-                // TODO: do compact log
+            if should_compact || !has_complete {
+                // TODO: persist applied
+                self._persist_last_applied(update, has_complete);
             }
+            if should_compact {
+                // do compact raft log
+                self.compact_raft_log(true).await;
+            }
+            Some(ctx)
+        } else {
+            None
         }
-        ctx
+    }
+
+    fn _persist_last_applied(&self, index: u64, has_complete: bool) {
+        // persist last applied
+        self.write_store.update_applied(index);
+        
+        // panic if not has complete and should not ignore failure
+        if !has_complete && !self.conf().ignore_apply_failure {
+            crate::error!("apply log entry failure, decide to abort");
+            // TODO: shutdown more graceful.
+            panic!("apply log entry failure");
+        }
     }
 }
 

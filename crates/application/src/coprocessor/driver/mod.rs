@@ -22,7 +22,7 @@ use super::{
 };
 
 #[derive(Debug)]
-pub enum ApplyState {
+pub enum ApplySnapshot {
     // finished or failure
     Applied(SnapshotStatus),
     Applying(JoinHandle<Option<SnapshotStatus>>),
@@ -304,7 +304,7 @@ impl CoprocessorDriver {
         _ctx: &RaftContext,
         snapshot: &Snapshot,
         wait_timeout: Duration,
-    ) -> ApplyState {
+    ) -> ApplySnapshot {
         crate::debug!(
             "[Snapshot Step 4] applying snapshot: {:?}",
             snapshot.get_metadata()
@@ -342,18 +342,18 @@ impl CoprocessorDriver {
         let apply_in_timeout = apply_in_timeout.await;
         if let Err(_) = apply_in_timeout {
             // so.. return the inflight task if exceed transfer timeout. maybe success in future.
-            return ApplyState::Applying(transferring);
+            return ApplySnapshot::Applying(transferring);
         }
         // blocking for accept snapshot result in given timeout.
         match apply_in_timeout.unwrap() {
-            Ok(status) => ApplyState::Applied(status),
+            Ok(status) => ApplySnapshot::Applied(status),
             Err(e) => {
                 crate::error!(
                     "failed to apply snapshot in {:?}ms, see: {:?}",
                     wait_timeout.as_millis(),
                     e
                 );
-                ApplyState::Applied(SnapshotStatus::Failure)
+                ApplySnapshot::Applied(SnapshotStatus::Failure)
             }
         }
     }

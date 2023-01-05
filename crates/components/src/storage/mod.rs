@@ -10,7 +10,10 @@ use common::{
 use std::ops::Range;
 
 pub trait ReadStorage: Storage {
+
     fn raft_state(&self) -> Result<RaftState>;
+
+    fn get_applid(&self) -> Option<u64>;
 
     /// Scan entries those in given index range
     fn scan<F>(&self, range: Range<u64>, scanner: F)
@@ -19,7 +22,10 @@ pub trait ReadStorage: Storage {
 }
 
 pub trait WriteStorage {
+
     fn set_conf_state(&self, initial: ConfState) -> Result<()>;
+
+    fn update_applied(&self, applied: u64);
 
     /// commit in hardstate should be update independency
     fn update_commit(&self, commit: u64) -> Result<()> {
