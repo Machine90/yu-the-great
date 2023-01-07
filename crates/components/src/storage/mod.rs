@@ -25,7 +25,7 @@ pub trait WriteStorage {
 
     fn set_conf_state(&self, initial: ConfState) -> Result<()>;
 
-    fn update_applied(&self, applied: u64);
+    fn update_applied(&self, applied: u64) -> Result<()>;
 
     /// commit in hardstate should be update independency
     fn update_commit(&self, commit: u64) -> Result<()> {

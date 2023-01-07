@@ -28,6 +28,12 @@ pub enum ApplySnapshot {
     Applying(JoinHandle<Option<SnapshotStatus>>),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum AfterApplied {
+    Skip = 0,
+    Persist = 1,
+    Compact = 2
+}
 
 /// Coprocessor is the core component of application (both multi-raft and single)
 /// which used to coordinate "write" and "read" actions, and notify some changes
@@ -205,12 +211,12 @@ impl CoprocessorDriver {
     pub async fn after_applied(
         &self, 
         ctx: &RaftContext,
-    ) -> bool {
+    ) -> AfterApplied {
         let RaftContext { 
             ..
         } = ctx;
         // TODO: handle with latest applied index
-        false
+        AfterApplied::Skip
     }
 
     /// When leader receive raw read_index ctx directly or from

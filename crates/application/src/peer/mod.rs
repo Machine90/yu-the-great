@@ -40,7 +40,7 @@ use consensus::{raft_node::RaftNode};
 use std::{
     fmt::Debug, 
     ops::{Deref},
-    sync::Arc
+    sync::Arc, cmp
 };
 
 #[cfg(feature = "multi")]
@@ -95,17 +95,29 @@ impl Peer {
         cp_driver: Arc<CoprocessorDriver>
     ) -> RaftResult<Self> {
         let mut conf = cp_driver.conf().consensus_config.clone();
+
         if let Some(mut applied) = group.get_applied().or(store.get_applid()) {
             // applied should larger than first index
             let first_idx = store.first_index()?;
+            let persist = store.last_index()?;
+            let init_state = store.initial_state()?;
+            let commit = init_state.hard_state.commit;
+            let last_idx = cmp::min(commit, persist);
+
             if first_idx > applied {
-                crate::warn!("initial last applied should never less than first index");
+                crate::warn!("initial last_applied should never less than first index");
                 applied = first_idx;
+            } else if applied > last_idx {
+                crate::warn!("initial last_applied should never larger than min(commit, persist)");
+                applied = last_idx;
             }
+            crate::debug!(
+                "peer of group-{} node-{} initial with entries [{first_idx}, {persist}], commit: {commit}, applied: {applied}",
+                group.id, conf.id,
+            );
             conf.applied = applied;
         }
         let raft = RaftNode::new(read_store, conf)?;
-
         let GroupProto { id, from_key, to_key, .. } = group;
         let partition = Partition::from_range(
             from_key..to_key, ()
@@ -143,7 +155,7 @@ impl Core {
         &self.coprocessor_driver.conf()
     }
 
-    pub async fn clear(&self) {
+    pub(crate) async fn clear(&self) {
         if let Some(topo) = self.mailbox.topo() {
             topo.remove_group(&self.group_id);
         }
@@ -153,17 +165,25 @@ impl Core {
     }
 
     pub async fn compact_raft_log(&self, should_async: bool) {
-        let applied = self.rl_raft().await.status().applied_index;
+        if let Some(raft) = self.try_rl_raft() {
+            let applied = raft.status().applied_index;
+            self._compact_raft_log(applied, should_async).await
+        } else {
+            crate::debug!("compact raft log failure, could not acquire lock of raft");
+        }
+    }
+
+    async fn _compact_raft_log(&self, to: u64, should_async: bool) {
         if should_async {
             let store = self.write_store.clone();
             let group_id = self.group_id;
             runtime::spawn_blocking(move || {
-                if let Err(e) = store.group_compact(group_id, applied) {
+                if let Err(e) = store.group_compact(group_id, to) {
                     crate::warn!("compact raft log async failure, see: {:?}", e);
                 }
             });
         } else {
-            if let Err(e) = self.write_store.group_compact(self.group_id, applied) {
+            if let Err(e) = self.write_store.group_compact(self.group_id, to) {
                 crate::warn!("compact raft log failure, see: {:?}", e);
             }
         }

@@ -1,14 +1,14 @@
 use crate::{
     self as yu,
     peer::facade::{local::LocalPeer, AbstractPeer},
-    single,
+    single, coprocessor::listener::snapshot::{bin_snapshot::{BinSnapshot, BackupSender}, Config},
 };
-use common::vendor::prelude::{
+use common::{vendor::prelude::{
     conf_file_logger, init_logger_factory, LogFactory, LogLevel, LoggerConfig,
-};
+}, protos::raft_log_proto::SnapshotMetadata};
 use components::{
     tokio1::time::{sleep, Instant},
-    torrent::runtime,
+    torrent::{runtime, fast_cp::{sync::handler::ReceiveHandler, MetaInfo}},
     utils::endpoint_change::{ChangeSet, EndpointChange},
 };
 use consensus::HashMap;
@@ -37,7 +37,13 @@ fn test_helloworld() {
 #[test]
 fn test_confchange() {
     set_logger("conf_change");
-    runtime::blocking( conf_change());
+    runtime::blocking( conf_change(false));
+}
+
+#[test]
+fn test_snapshot() {
+    set_logger("snapshot");
+    runtime::blocking( conf_change(true));
 }
 
 /// Step 1: we define a struct called "HelloWorld"
@@ -64,6 +70,29 @@ impl RaftListener for HelloWorld {
     }
 }
 
+impl ReceiveHandler<Vec<u8>> for HelloWorld {
+    fn exists(&self, item: &MetaInfo) -> bool {
+        false
+    }
+
+    fn open_writer(&self, item: &MetaInfo) -> Result<Vec<u8>> {
+        println!("start to write backups of {:?}", item);
+        Ok(vec![])
+    }
+
+    fn complete(&self, backup: &mut Vec<u8>) {
+        println!("backup: {:?}", String::from_utf8(std::mem::take(backup)));
+    }
+}
+
+impl BackupSender for HelloWorld {
+    fn prepare_backups(&self, _: &RaftContext, _: &SnapshotMetadata) -> Vec<u8> {
+        // load your backups here, i.e. pack your key-valus
+        // and encode to binary code.
+        b"already said".to_vec()
+    }
+}
+
 fn _build_node(node_id: NodeID, group: GroupProto) -> single::Node {
     let mut conf = NodeConfig::default();
     // node id must be assigned
@@ -73,6 +102,12 @@ fn _build_node(node_id: NodeID, group: GroupProto) -> single::Node {
         .with_raftlog_store(|group| provider::mem_raftlog_store(group)) // save raft's log in memory
         .use_default() // default to tick it and use RPC transport.
         .add_raft_listener(HelloWorld) // add this listener to coprocessor
+        .add_snapshot_listener(BinSnapshot::new(
+            node_id as u32, 
+            HelloWorld, 
+            HelloWorld, 
+            Config::default())
+        )
         .build() // ready
         .unwrap();
     // run a daemon to receive RaftMessage between peers in the group.
@@ -171,8 +206,8 @@ async fn hello_world() {
 
 /// Test `conf_change` for single raft group, initial group with nodes `[1, 2, 3]` 
 /// add node 4 and remove node 2. Then transfer leader to peer 4.
-async fn conf_change() {
-    let (mut nodes, mut group, _, leader) = three_peers();
+async fn conf_change(do_compact: bool) {
+    let (mut nodes, mut group, peers, leader) = three_peers();
     let leader = leader.unwrap();
     let _ = leader.propose_async(b"Zhang 3".to_vec()).await;
     let _ = leader.propose_async(b"Li 4".to_vec()).await;
@@ -181,6 +216,13 @@ async fn conf_change() {
     let endpoint4 = Node::parse(4, "raft://localhost:8084").unwrap();
     group.add_voter(&endpoint4);
     let peer4 = _build_node(4, group).get_local_client();
+
+    if do_compact {
+        for peer in peers {
+            peer.compact_raft_log(false).await;
+        }
+    }
+
     let to_remove = 2;
     // add 4 and remove 2
     let changes = ChangeSet::new()
@@ -212,7 +254,13 @@ async fn conf_change() {
     let mut cs = stat.conf_state.unwrap();
     cs.voters.sort();
     assert_eq!(cs.voters, vec![1,3,4]);
-    let _ = peer4.transfer_leader_async(4).await;
-    // transfer leader guarantee the target must be Leader after transfered
-    assert_eq!(peer4.role().await, RaftRole::Leader);
+    if !do_compact {
+        let _ = peer4.transfer_leader_async(4).await;
+        // transfer leader guarantee the target must be Leader after transfered
+        assert_eq!(peer4.role().await, RaftRole::Leader);
+    } else {
+        sleep(Duration::from_millis(3000)).await;
+        let stat4 = peer4.status(false).await;
+        println!("{:#?}", stat4);
+    }
 }

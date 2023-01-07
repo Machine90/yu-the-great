@@ -25,7 +25,7 @@ pub trait GroupStorage: Send + Sync + 'static {
         limit: Option<u64>,
     ) -> Result<Vec<Entry>>;
 
-    fn group_update_applid(&self, group: u32, applied: u64);
+    fn group_update_applid(&self, group: u32, applied: u64) -> Result<()>;
 
     fn group_applid(&self, group: u32) -> Option<u64>;
 
@@ -128,7 +128,7 @@ impl Storage for dyn GroupStorage {
 impl WriteStorage for dyn GroupStorage {
 
     #[inline]
-    fn update_applied(&self, applied: u64) {
+    fn update_applied(&self, applied: u64) -> Result<()> {
         self.group_update_applid(self.get_group_id(), applied)
     }
 

@@ -11,6 +11,7 @@ use std::collections::HashSet;
 use std::{convert::TryInto, mem};
 
 use super::{raft_group::raft_node::WLockRaft, Core};
+use crate::coprocessor::driver::AfterApplied;
 use crate::protos::prelude::prost::Message;
 use crate::torrent::runtime;
 use crate::{
@@ -306,8 +307,8 @@ impl Core {
                 }
             };
             if let Err(e) = applied_result {
-                // TODO: how to handle if apply log failure, for example disk unavailable.
-                // Some discussions about this concern:
+                // How to handle if apply log failure, for example disk unavailable.
+                // Some discussions about this problem:
                 // 1. https://groups.google.com/g/raft-dev/c/fbwv8-qMFYE?pli=1
                 // 2. https://stackoverflow.com/questions/54938499/how-to-handle-the-saving-failure-after-raft-committed
                 // 3. https://github.com/hashicorp/raft/issues/307
@@ -413,14 +414,13 @@ impl Core {
         if old < update {
             // maybe equal
             let ctx: RaftContext = RaftContext::from_status(self.group_id, raft.status());
-            let should_compact = self.coprocessor_driver.after_applied(&ctx).await;
-            if should_compact || !has_complete {
-                // TODO: persist applied
+            let suggestion = self.coprocessor_driver.after_applied(&ctx).await;
+            if suggestion >= AfterApplied::Persist || !has_complete {
                 self._persist_last_applied(update, has_complete);
             }
-            if should_compact {
+            if suggestion == AfterApplied::Compact {
                 // do compact raft log
-                self.compact_raft_log(true).await;
+                self._compact_raft_log(update, true).await;
             }
             Some(ctx)
         } else {
@@ -430,7 +430,9 @@ impl Core {
 
     fn _persist_last_applied(&self, index: u64, has_complete: bool) {
         // persist last applied
-        self.write_store.update_applied(index);
+        if let Err(e) = self.write_store.update_applied(index) {
+            crate::error!("failed to write applied {index}, see: {:?}", e);
+        }
         
         // panic if not has complete and should not ignore failure
         if !has_complete && !self.conf().ignore_apply_failure {
