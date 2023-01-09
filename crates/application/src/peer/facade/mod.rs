@@ -18,7 +18,7 @@ use crate::torrent::{bincode, runtime::blocking};
 /// runtime to block for process.
 pub trait Facade: AbstractPeer {
     #[inline]
-    fn propose<P>(&self, propose: P) -> Yusult<Proposal>
+    fn propose_ser<P>(&self, propose: P) -> Yusult<Proposal>
     where
         P: Serialize,
     {
@@ -28,6 +28,14 @@ pub trait Facade: AbstractPeer {
             return Yusult::Err(YuError::CodecError(err_msg));
         }
         blocking(self.propose_async(propose.unwrap()))
+    }
+
+    #[inline]
+    fn propose_bin<B>(&self, propose: B) -> Yusult<Proposal>
+    where
+        B: AsRef<[u8]>,
+    {
+        blocking(self.propose_async(propose.as_ref().to_vec()))
     }
 
     #[inline]

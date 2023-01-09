@@ -105,10 +105,10 @@ impl Peer {
             let last_idx = cmp::min(commit, persist);
 
             if first_idx > applied {
-                crate::warn!("initial last_applied should never less than first index");
+                crate::debug!("initial last_applied({applied}) should never less than first index");
                 applied = first_idx;
             } else if applied > last_idx {
-                crate::warn!("initial last_applied should never larger than min(commit, persist)");
+                crate::debug!("initial last_applied({applied}) should never larger than min(commit: {commit}, persist: {persist})");
                 applied = last_idx;
             }
             crate::debug!(

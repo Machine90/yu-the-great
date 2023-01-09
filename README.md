@@ -31,46 +31,30 @@ yu-the-great = { git = "https://github.com/Machine90/yu-the-great.git", default-
 use std::{io::Result};
 use yu_the_great as yu;
 use yu::{
-    common::protocol::{read_state::ReadState, NodeID},
+    common::protocol::{read_state::ReadState,},
     coprocessor::listener::{proposal::RaftListener, Acl, RaftContext},
     peer::{config::NodeConfig, facade::Facade},
-    protos::{raft_group_proto::GroupProto, raft_log_proto::Entry},
+    protos::{raft_group_proto::GroupProto},
     solutions::builder::single::{provider, Builder},
     solutions::rpc::StubConfig,
     torrent::{topology::node::Node},
-    RaftRole,
+    RaftRole
 };
 
 /// Step 1: we define a struct called "HelloWorld"
-struct HelloWorld(NodeID);
-impl HelloWorld {
-    
-    /// HelloWorld will take out committed entry data
-    /// supposed we propose some names to it.
-    fn sayhello(&self, ent: &Entry) -> i64 {
-        let log = ent.data.clone();
-        if let Ok(name) = String::from_utf8(log) {
-            println!("[Node {}] Hello {}", self.0, name);
-        }
-        ent.data.len() as i64
-    }
-}
-
+struct HelloWorld;
 /// always enable by using default, to control the access privilege of this listener.
 impl Acl for HelloWorld {}
-
 /// Step 2: implement `RaftListener` for it, so that it can aware the "write" and "read"
 /// events.
 #[yu::async_trait]
 impl RaftListener for HelloWorld {
     
     /// To handle committed log entry at local.
-    async fn handle_write(&self, _: &RaftContext, entries: &[Entry]) -> Result<i64> {
-        let mut total = 0;
-        for ent in entries.iter() {
-            total += self.sayhello(ent);
-        }
-        Ok(total)
+    async fn handle_write(&self, ctx: &RaftContext, edit_log: &[u8]) -> Result<i64> {
+        let RaftContext { node_id, .. } = ctx;
+        println!("hello {:?} this is Node-{}", String::from_utf8(edit_log.to_vec()), node_id);
+        Ok(edit_log.len() as i64)
     }
 
     async fn handle_read(&self, _: &RaftContext, _: &mut ReadState) {
@@ -101,7 +85,7 @@ fn main() {
         let node = Builder::new(group.clone(), conf)
             .with_raftlog_store(|group| provider::mem_raftlog_store(group)) // save raft's log in memory
             .use_default() // default to tick it and use RPC transport.
-            .add_raft_listener(HelloWorld(node_id)) // add this listener to coprocessor
+            .add_raft_listener(HelloWorld) // add this listener to coprocessor
             .build() // ready
             .unwrap();
         // run a daemon to receive RaftMessage between peers in the group.
@@ -122,7 +106,7 @@ fn main() {
     // Finally, say hello to each others, both leader and follower can 
     // handle propose and read_index.
     for (i, name) in ["Alice", "Bob", "Charlie"].iter().enumerate() {
-        let proposal = peers[i].propose(name);
+        let proposal = peers[i].propose_bin(name);
         assert!(proposal.is_ok());
     }
 }
