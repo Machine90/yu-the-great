@@ -8,7 +8,6 @@ use crate::coprocessor::delegation::decode_unique_read;
 use crate::coprocessor::listener::{Listeners, RaftContext, Listener};
 use crate::coprocessor::{read_index_ctx::ReadContext, ChangeReason, RaftCoprocessor};
 use crate::peer::process::read::ReadyRead;
-use crate::protos::raft_log_proto::Entry;
 use crate::PeerID;
 use crate::{RaftMsg, RaftResult, debug, ConsensusError};
 use common::protocol::NodeID;
@@ -160,26 +159,26 @@ impl RaftCoprocessor for BatchCoprocessor {
     }
 
     #[inline(always)]
-    async fn handle_commit_log_entry(
+    async fn apply_log_entry(
         &self,
         ctx: &RaftContext,
-        entries: &Vec<Entry>,
+        data: Vec<u8>,
         listeners: Arc<Listeners>,
-    ) -> i64 {
+    ) -> RaftResult<i64> {
         self.based
-            .handle_commit_log_entry(ctx, entries, listeners)
+            .apply_log_entry(ctx, data, listeners)
             .await
     }
 
     #[inline(always)]
-    async fn handle_commit_cmds(
+    async fn apply_command(
         &self,
         ctx: &RaftContext,
-        cmds: &Vec<Vec<u8>>,
+        command: Vec<u8>,
         listeners: Arc<Listeners>,
-    ) {
+    ) -> RaftResult<()> {
         self.based
-            .handle_commit_cmds(ctx, cmds, listeners)
+            .apply_command(ctx, command, listeners)
             .await
     }
 

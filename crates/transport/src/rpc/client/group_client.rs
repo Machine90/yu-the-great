@@ -96,6 +96,17 @@ impl NodeMailbox for GroupRpcClient {
             .into()
     }
 
+    async fn group_append_async(&self, group: GroupID, append: RaftMsg) -> RaftResult<()> {
+        let to = append.to;
+        self.transporter
+            .make_call_to_peer(group, to, move |service| {
+                let append_msg = append.clone();
+                async move { service.append_async(context::current(), group, append_msg).await }
+            })
+            .await?;
+        Ok(())
+    }
+
     async fn group_append_response(
         &self,
         group: GroupID,

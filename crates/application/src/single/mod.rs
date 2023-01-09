@@ -71,3 +71,6 @@ impl Drop for Core {
         });
     }
 }
+
+#[allow(unused)]
+mod tests;

@@ -75,21 +75,21 @@ pub trait RaftCoprocessor: Sync {
 
     /// Handle commit propose data with listeners. Both available for
     /// `Leader` and `Follower`.
-    async fn handle_commit_log_entry(
+    async fn apply_log_entry(
         &self,
         ctx: &RaftContext,
-        entries: &Vec<Entry>,
+        normal: Vec<u8>,
         listeners: Arc<Listeners>,
-    ) -> i64;
+    ) -> RaftResult<i64>;
 
     /// Handle committed commands with listeners. Both available for
     /// `Leader` and `Follower`.
-    async fn handle_commit_cmds(
+    async fn apply_command(
         &self,
         ctx: &RaftContext,
-        cmds: &Vec<Vec<u8>>,
+        command: Vec<u8>,
         listeners: Arc<Listeners>,
-    );
+    ) -> RaftResult<()>;
 
     /// Coprocessor allow to enhance the read_ctx before do real read
     /// work, for example add an unique ID for this read.

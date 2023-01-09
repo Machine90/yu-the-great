@@ -24,9 +24,19 @@ impl<S> RaftGroup<S> where S: Storage {
         self.raft_node.write().await
     }
 
+    /// Try acquire raft async write-lock in tokio Runtime.
+    #[inline] pub fn try_wl_raft(&self) -> Option<RwLockWriteGuard<RaftNode<S>>> {
+        self.raft_node.try_write().ok()
+    }
+
     /// Acquire raft async read-lock in tokio Runtime.
     #[inline] pub async fn rl_raft(&self) -> RwLockReadGuard<'_, RaftNode<S>> {
         self.raft_node.read().await
+    }
+
+    /// Try acquire raft async read-lock in tokio Runtime.
+    #[inline] pub fn try_rl_raft(&self) -> Option<RwLockReadGuard<RaftNode<S>>> {
+        self.raft_node.try_read().ok()
     }
 
     #[inline] pub async fn role(&self) -> RaftRole {

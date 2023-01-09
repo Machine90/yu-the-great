@@ -21,29 +21,22 @@ pub trait RaftProcess {
     /// * commit entries: after update commit, then generate some entries should be apply 
     fn has_ready(&self) -> bool;
 
+    /// Step advances the state machine using the given message.
     fn step(&mut self, message: Message) -> Result<()>;
 
-    /// Process raft group with given message once and collect ready immediately
-    /// ### Suggestions
-    /// This method often using to guarantee the `linear consistency` <br/>
-    /// If you guys have not demands for consistency, and want high concurrency.
-    /// then split this operation to:
-    /// 1. `process_message` 
-    /// 2. `has_ready`
-    /// 3. `get_ready`
+    /// Current raft receive the message from remote peer and step it,
+    /// then generate some ready items.
+    /// This method equal to
+    /// 1. `step` with message
+    /// 2. check if `has_ready`
+    /// 3. `get_ready` as return if ready.
+    #[inline]
     fn step_and_ready(&mut self, message: Message) -> Result<Ready> {
-        let processed = self.step(message);
-        if let Err(err) = processed {
-            return Err(err);
-        }
-        if !self.has_ready() {
-            return Err(Error::Nothing);
-        }
-        let ready = self.get_ready();
-        Ok(ready)
+        self.step(message)?;
+        self.get_if_ready()
     }
 
-    /// Get ready from raft, if nothing ready, then return error: [Nothing](common::errors::Error::Nothing)
+    /// Call `has_ready` before `get_ready`, if nothing ready, then return error: [Nothing](common::errors::Error::Nothing)
     /// * messages: msg to be send (from Leader) or response (from follower)
     /// * soft state: **leader_id** has been changed or role changed
     /// * hard state: commit changed or term changed
@@ -55,11 +48,17 @@ pub trait RaftProcess {
         if !self.has_ready() {
             return Err(Error::Nothing);
         }
-        let ready = self.get_ready();
-        Ok(ready)
+        Ok(self.get_ready())
     }
 
-    /// Both get `ready` stuffs (messages, entries) and `light_ready` stuffs
+    /// Returns the outstanding work that the application needs to handle.
+    ///
+    /// This includes appending and applying entries or a snapshot, updating the HardState,
+    /// and sending messages. The returned `Ready` *MUST* be handled and subsequently
+    /// passed back via `advance` or its families. Before that, *DO NOT* call any function like
+    /// `step`, `propose`, `campaign` to change internal state.
+    ///
+    /// [`Self::has_ready`] should be called first to check if it's necessary to handle the ready.
     fn get_ready(&mut self) -> Ready;
 
     /// This action will call `advance_append` and `advance_apply_to`
@@ -78,14 +77,17 @@ pub trait RaftProcess {
     fn advance_append_async(&mut self, rd: Ready);
 
     /// ## Description
-    /// Advance apply maybe update `raft_log.applied` to
-    /// `since_committed_index`. If raft is still in pending
-    /// `conf_change` (add or remove peer) and current peer is `Leader`,
-    /// an empty entry `EntryConfChange` will be stored in `raft_log.unstable`
-    fn advance_apply(&mut self);
+    /// Advance apply and update `raft_log.applied` to latest `since_committed_index` 
+    /// then return this value. If current peer is `Leader` and has applied some `conf_change`, 
+    /// then generate an empty `EntryConfChange` entry, so that auto `LeaveJoint` will
+    /// be take place next time.
+    /// ## Returns
+    /// * old_applied
+    /// * new_applied
+    fn advance_apply(&mut self) -> (u64, u64);
 
     /// This action maybe update `raft_log.applied` to given `applied`
-    fn advance_apply_to(&mut self, applied: u64);
+    fn advance_apply_to(&mut self, applied: u64) -> u64;
 
 }
 
@@ -218,6 +220,7 @@ impl<S: Storage> RaftProcess for RaftNode<S> where S: Storage {
 
     fn advance_append(&mut self, rd: Ready) -> LightReady {
         self.commit_ready(rd);
+        // leader maybe update `committed_index` when `persist_ready`.
         self.persist_ready(self.ready_records_number);
         
         let mut light_rd = self.gen_light_ready();
@@ -239,12 +242,14 @@ impl<S: Storage> RaftProcess for RaftNode<S> where S: Storage {
     }
 
     #[inline]
-    fn advance_apply(&mut self) {
-        self.commit_apply(self.since_committed_index)
+    fn advance_apply(&mut self) -> (u64, u64) {
+        let new_applied = self.since_committed_index;
+        let old_applied = self.commit_apply(new_applied);
+        (old_applied, new_applied)
     }
 
     #[inline]
-    fn advance_apply_to(&mut self, applied_index: u64) {
+    fn advance_apply_to(&mut self, applied_index: u64) -> u64 {
         self.commit_apply(applied_index)
     }
 }

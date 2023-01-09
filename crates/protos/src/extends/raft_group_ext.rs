@@ -18,6 +18,7 @@ use serde::{Deserialize, ser, de};
 pub const RAFT_MAILBOX: &'static str = "raft";
 
 const ID: &str = "id";
+const APPLIED: &str = "applied";
 const VOTER: &str = "voter";
 const LEARNER: &str = "learner";
 const ENDPOINTS: &str = "nodes";
@@ -128,15 +129,15 @@ pub fn valid_str_list(list: &str) -> bool {
     false
 }
 
-pub fn to_node_id(id: &str) -> std::io::Result<u64> {
-    let node_id = id.trim().parse::<u64>();
-    if let Err(e) = node_id {
+pub fn to_u64(num: &str) -> std::io::Result<u64> {
+    let u64num = num.trim().parse::<u64>();
+    if let Err(e) = u64num {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput, 
-            format!("parse node id: {} error, see: {:?}", id, e)
+            format!("parse u64({}) error, see: {:?}", num, e)
         ));
     }
-    Ok(node_id.unwrap())
+    Ok(u64num.unwrap())
 }
 
 pub fn to_group_id(id: &str) -> std::io::Result<u32> {
@@ -196,7 +197,7 @@ impl FromStr for EndpointProto {
             ));
         }
         let id = &node[0..split_token];
-        let id = to_node_id(id)?;
+        let id = to_u64(id)?;
         let node: Node<u64> = Node::parse(id, &node[next..])?;
         Ok(node.into())
     }
@@ -244,6 +245,24 @@ impl GroupProto {
         self
     }
 
+    pub fn update_applied(&mut self, applied: u64) -> bool {
+        let mut updated = false;
+        if self.applied < applied {
+            self.applied = applied;
+            updated = true;
+        }
+        updated
+    }
+
+    pub fn get_applied(&self) -> Option<u64> {
+        const DUMMY_APPLIED: u64 = 0;
+        if self.applied == DUMMY_APPLIED {
+            None
+        } else {
+            Some(self.applied)
+        }
+    }
+
     #[inline]
     pub fn set_key_range<K: AsRef<[u8]>>(&mut self, range: Range<K>) -> &mut Self {
         let Range { start, end } = range;
@@ -259,6 +278,23 @@ impl GroupProto {
         let cs = voters.into();
         self.confstate = Some(cs);
         self
+    }
+
+    pub fn add_voter(&mut self, voter: &Node<u64>) -> bool {
+        let id = voter.id;
+        let added = self.confstate.as_mut().map(|cs| {
+            for v in cs.voters.iter() {
+                if id == *v {
+                    return false;
+                }
+            }
+            cs.voters.push(id);
+            true
+        }).unwrap_or(false);
+        if added {
+            self.add_node(voter.clone());
+        }
+        added
     }
 
     #[inline]
@@ -409,6 +445,7 @@ impl GroupProto {
     fn _encode(&self, ft: FileType) -> std::io::Result<Vec<u8>> {
         let GroupProto { 
             id, 
+            applied,
             endpoints, 
             confstate, 
             .. } = self;
@@ -435,6 +472,7 @@ impl GroupProto {
                 }
                 let mut buff = String::new();
                 buff.push_str(format!("{ID}={}\n", id).as_str());
+                buff.push_str(format!("{APPLIED}={}\n", applied).as_str());
                 if let Some(cs) = confstate {
                     buff.push_str(format!("{VOTER}={:?}\n", cs.voters).as_str());
                     buff.push_str(format!("{LEARNER}={:?}\n", cs.learners).as_str());
@@ -480,6 +518,9 @@ impl GroupProto {
                         ID => {
                             self.id = to_group_id(value)?;
                         },
+                        APPLIED => {
+                            self.applied = to_u64(value)?;
+                        },
                         VOTER => {
                             if !valid_str_list(value) {}
                             let mut voters = vec![];
@@ -488,7 +529,7 @@ impl GroupProto {
                                 if v.is_empty() {
                                     continue;
                                 }
-                                voters.push(to_node_id(v)?);
+                                voters.push(to_u64(v)?);
                             }
                             let mut cs = self.confstate.take().unwrap_or_default();
                             cs.voters = voters;
@@ -502,7 +543,7 @@ impl GroupProto {
                                 if l.is_empty() {
                                     continue;
                                 }
-                                learners.push(to_node_id(l)?);
+                                learners.push(to_u64(l)?);
                             }
 
                             let mut cs = self.confstate.take().unwrap_or_default();
@@ -625,6 +666,7 @@ impl Ord for GroupProto {
         };
         let group = GroupProto {
             id: 1,
+            applied: 50,
             from_key: b"aaa".to_vec(),
             to_key: b"bbb".to_vec(),
             endpoints: vec![e1,e2,e3],

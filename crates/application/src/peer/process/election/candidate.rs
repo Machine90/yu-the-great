@@ -170,20 +170,24 @@ impl Core {
         let role = raft.role();
         // maybe_commit_by_vote after step, and generate some committed entries.
         self.persist_ready(&mut ready).await?;
-        let commit_by_vote = self.apply_commit_entry(&mut raft, ready.take_committed_entries());
+        // commit by vote, after received `vote_response` with larger commit at term.
+        let (complete, applied_by_vote) = self.apply_commit_entries(
+            &mut raft, 
+            ready.take_committed_entries()
+        ).await;
+        self._advance_apply_to(&mut raft, applied_by_vote, complete).await;
+
         // if candidate become leader after won election
         let bcast_append = msgs(ready.take_messages());
-        let mut light_ready = raft.advance(ready);
+        let mut light_ready = raft.advance_append(ready);
+        drop(raft);
+        
         let _ = self.persist_light_ready(&mut light_ready).await;
         // if pre-candidate become candidate after won first round election.
         let bcast_vote = msgs(light_ready.take_messages());
 
         // applied maybe changed to last committed entry.
-        raft.advance_apply();
         // release lock safety
-        drop(raft);
-
-        commit_by_vote.join_all().await;
 
         match resp_type {
             // request as pre-candidate, next request vote.

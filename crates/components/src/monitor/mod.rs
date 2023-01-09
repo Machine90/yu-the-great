@@ -20,7 +20,7 @@ impl Default for MonitorConf {
         Self {
             enable: true,
             statistic_dur_in_ms: 300000, // sampling for past 5min
-            sampling_freqency: 60, // sampling each 5 seconds
+            sampling_freqency: 60, // sampling each 5 seconds (statistic_dur_in_ms / sampling_freqency) / 1000
             enable_group_sampling: false
         }
     }

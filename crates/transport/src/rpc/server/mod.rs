@@ -1,9 +1,9 @@
 use crate::RaftMsg;
 use common::{
     protocol::{response::Response, GroupID, NodeID},
-    protos::{multi_proto::BatchMessages, raft_group_proto::GroupProto, raft_log_proto::Snapshot},
+    protos::{multi_proto::BatchMessages, raft_group_proto::GroupProto, raft_log_proto::Snapshot}, 
 };
-use components::{mailbox::api::NodeMailbox, tokio1::runtime::Runtime, vendor::{info, debug}};
+use components::{mailbox::api::NodeMailbox, tokio1::runtime::Runtime, vendor::{info, debug, warn}};
 use std::{net::SocketAddr, sync::Arc};
 use tarpc_ext::tcp::{
     rpc::{context::Context, tarpc},
@@ -87,11 +87,21 @@ impl RaftService for NodeRpcServer {
         self.mailbox.group_append(group, append).await.into()
     }
 
+    async fn append_async(self, _: Context, group: GroupID, append: RaftMsg) {
+        let result = self.mailbox.group_append_async(group, append).await;
+        if let Err(e) = result {
+            warn!("handle append failed, see: {:?}", e);
+        }
+    }
+
     async fn append_response(self, _: Context, group: GroupID, append_response: RaftMsg) {
-        let _ = self
+        let result = self
             .mailbox
             .group_append_response(group, append_response)
             .await;
+        if let Err(e) = result {
+            warn!("handle append response failed, see: {:?}", e);
+        }
     }
 
     async fn sync_snapshot(

@@ -105,6 +105,14 @@ impl<S: GroupStorage + Clone> Builder<S> {
     }
 
     #[inline]
+    pub fn add_snapshot_listener<L: SnapshotListener + Send + Sync + 'static>(
+        self,
+        listener: L,
+    ) -> Self {
+        self.add_listener(Listener::Snapshot(Arc::new(listener)))
+    }
+
+    #[inline]
     pub fn register_coprocessor_ref(mut self, cop: Arc<dyn RaftCoprocessor + Send>) -> Self {
         self.cp_driver_builder = self.cp_driver_builder.register_coprocessor(cop);
         self

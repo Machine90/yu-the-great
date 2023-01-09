@@ -25,6 +25,10 @@ pub trait GroupStorage: Send + Sync + 'static {
         limit: Option<u64>,
     ) -> Result<Vec<Entry>>;
 
+    fn group_update_applid(&self, group: u32, applied: u64) -> Result<()>;
+
+    fn group_applid(&self, group: u32) -> Option<u64>;
+
     fn group_term(&self, group: u32, index: u64) -> Result<u64>;
 
     fn group_first_index(&self, group: u32) -> Result<u64>;
@@ -122,6 +126,12 @@ impl Storage for dyn GroupStorage {
 }
 
 impl WriteStorage for dyn GroupStorage {
+
+    #[inline]
+    fn update_applied(&self, applied: u64) -> Result<()> {
+        self.group_update_applid(self.get_group_id(), applied)
+    }
+
     #[inline]
     fn set_conf_state(&self, initial: ConfState) -> Result<()> {
         self.group_set_conf_state(self.get_group_id(), initial)
@@ -160,6 +170,12 @@ impl WriteStorage for dyn GroupStorage {
 }
 
 impl ReadStorage for dyn GroupStorage {
+
+    #[inline]
+    fn get_applid(&self) -> Option<u64> {
+        self.group_applid(self.get_group_id())
+    }
+
     #[inline]
     fn raft_state(&self) -> Result<RaftState> {
         self.group_raft_state(self.get_group_id())

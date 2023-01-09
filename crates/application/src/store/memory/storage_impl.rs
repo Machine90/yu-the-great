@@ -1,7 +1,7 @@
 use std::{cmp, sync::Arc};
 
 use common::errors::StorageError;
-use components::vendor::info;
+use consensus::raft::DUMMY_INDEX;
 
 use crate::tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use common::storage::{limit_size, RaftState, Storage};
@@ -10,7 +10,7 @@ use crate::torrent::runtime;
 
 // use super::{RaftState, Storage, limit_size};
 use crate::{
-    ConsensusError::{self, *},
+    ConsensusError::{self},
     RaftResult as Result,
 };
 
@@ -31,6 +31,7 @@ pub struct MemStorageCore {
     // If it is true, the next snapshot will return a
     // SnapshotTemporarilyUnavailable error.
     trigger_snap_unavailable: bool,
+    applied: u64,
 }
 
 impl MemStorageCore {
@@ -98,10 +99,24 @@ impl MemStorageCore {
         }
     }
 
+    /// Set applied index to `applied_snapshot`, the applied must be 
+    /// in range of `[first_index, last_index]`
+    pub fn set_applied_index(&mut self, index: u64) -> Result<()> {
+        let offset = self.first_index();
+        if index < offset {
+            return Err(ConsensusError::Store(StorageError::Compacted));
+        } else if index > self.last_index() {
+            return Err(ConsensusError::Store(StorageError::Unavailable));
+        }
+        self.applied = index;
+        Ok(())
+    }
+
     /// Get applied index from storage
     #[inline]
     pub fn applied_index(&self) -> u64 {
-        self.applied_snapshot.index
+        let mut applied = cmp::max(self.applied_snapshot.index, self.applied).max(self.first_index());
+        applied
     }
 
     #[inline]
@@ -136,7 +151,7 @@ impl MemStorageCore {
     /// Overwrites the contents of this Storage object with those of the given snapshot.
     /// ## Err
     /// Return Err if snapshot index is less than the storage's first index.
-    pub fn apply_snapshot(&mut self, mut snapshot: SnapshotMetadata) -> Result<()> {
+    pub fn apply_snapshot(&mut self, snapshot: SnapshotMetadata) -> Result<()> {
         let mut meta = snapshot;
         let index = meta.index;
 
@@ -246,6 +261,7 @@ impl Default for MemStorageCore {
             applied_snapshot: Default::default(),
             // When starting from scratch populate the list with a dummy entry at term zero.
             trigger_snap_unavailable: false,
+            applied: 0,
         }
     }
 }

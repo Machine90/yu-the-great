@@ -5,7 +5,6 @@ use super::{encode_unique_read, decode_unique_read};
 use super::simple::SimpleCoprocessor;
 use crate::coprocessor::listener::{Listeners, RaftContext};
 use crate::coprocessor::{read_index_ctx::ReadContext, RaftCoprocessor, ChangeReason};
-use crate::protos::raft_log_proto::Entry;
 use crate::tokio::sync::RwLock;
 use crate::{PeerID, NodeID};
 use crate::{RaftResult};
@@ -54,26 +53,26 @@ impl RaftCoprocessor for LinearCoprocessor {
     }
 
     #[inline(always)]
-    async fn handle_commit_log_entry(
+    async fn apply_log_entry(
         &self,
         ctx: &RaftContext,
-        entries: &Vec<Entry>,
+        data: Vec<u8>,
         listeners: Arc<Listeners>,
-    ) -> i64 {
+    ) -> RaftResult<i64> {
         self.based
-            .handle_commit_log_entry(ctx, entries, listeners)
+            .apply_log_entry(ctx, data, listeners)
             .await
     }
 
     #[inline(always)]
-    async fn handle_commit_cmds(
+    async fn apply_command(
         &self,
         ctx: &RaftContext,
-        cmds: &Vec<Vec<u8>>,
+        command: Vec<u8>,
         listeners: Arc<Listeners>,
-    ) {
+    ) -> RaftResult<()> {
         self.based
-            .handle_commit_cmds(ctx, cmds, listeners)
+            .apply_command(ctx, command, listeners)
             .await
     }
 

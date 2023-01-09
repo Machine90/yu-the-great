@@ -9,6 +9,6 @@ edition = "2021"
 [dependencies]
 fxhash = "0.2" # fxhash is the fatest hash lib for primitive type
 rand = "0.8"
-slog = "2.7"
+slog = { version = "2.7", features = ["max_level_trace"] }
 
 common = { path = "../common" }

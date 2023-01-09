@@ -73,12 +73,15 @@ pub trait RaftFunctions: Send + Sync {
 
     /// Apply proposal `BatchConfChange` at local.
     /// This action when handle by:
-    /// * **Leader**: update joint members and conf_state. then maybe generate append 
+    /// * **Leader**: update joint members and conf_state. then generate append 
     /// in type [MsgAppend](protos::raft_payload_proto::MessageType::MsgAppend) to follower who 
     /// is not in Replicate state. e.g. new incoming follower (voter).
     /// * **Follower**: only update joint members and 
     /// current [ConfState](protos::raft_log_proto::ConfState)
-    fn apply_conf_change(&mut self, changed_conf: &BatchConfChange) -> Result<ConfState>;
+    /// ## Returns
+    /// * origin confstate
+    /// * current confstate
+    fn apply_conf_change(&mut self, changed_conf: &BatchConfChange) -> Result<(ConfState, ConfState)>;
 }
 
 impl<S: Storage> RaftFunctions for RaftNode<S> where S: Storage {
@@ -154,7 +157,7 @@ impl<S: Storage> RaftFunctions for RaftNode<S> where S: Storage {
     }
 
     #[inline]
-    fn apply_conf_change(&mut self, changed_conf: &BatchConfChange) -> Result<ConfState> {
+    fn apply_conf_change(&mut self, changed_conf: &BatchConfChange) -> Result<(ConfState, ConfState)> {
         self.raft.apply_conf_changes(&changed_conf)
     }
 }

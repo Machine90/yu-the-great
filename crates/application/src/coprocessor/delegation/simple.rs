@@ -6,7 +6,7 @@ use crate::coprocessor::{
     read_index_ctx::{ReadContext, Interested, EvaluateRead, MaybeReady},
     ChangeReason, RaftCoprocessor,
 };
-use crate::protos::raft_log_proto::{Entry, Snapshot};
+use crate::protos::raft_log_proto::{Snapshot};
 use crate::{warn, PeerID, RaftResult};
 use components::{torrent::runtime};
 use common::protocol::{response::Response, read_state::ReadState};
@@ -48,16 +48,16 @@ impl SimpleCoprocessor {
 
 #[crate::async_trait]
 impl RaftCoprocessor for SimpleCoprocessor {
-    async fn handle_commit_log_entry(
+    async fn apply_log_entry(
         &self,
         ctx: &RaftContext,
-        entries: &Vec<Entry>,
+        data: Vec<u8>,
         listeners: Arc<Listeners>,
-    ) -> i64 {
+    ) -> RaftResult<i64> {
         if listeners.is_empty() {
             warn!(
                 "not RaftListener set but still remained {:?} entries should be apply",
-                entries.len()
+                data.len()
             );
         }
         let mut evaluate_changes = 0;
@@ -67,25 +67,24 @@ impl RaftCoprocessor for SimpleCoprocessor {
                     if !listener.should_execute(ctx).await {
                         continue;
                     }
-                    let changes = proposer.handle_write(ctx, entries).await.unwrap_or(0);
+                    let changes = proposer.handle_write(ctx, &data).await?;
                     evaluate_changes += changes;
                 }
                 _ => (),
             }
         }
-        evaluate_changes
+        Ok(evaluate_changes)
     }
 
-    async fn handle_commit_cmds(
+    async fn apply_command(
         &self,
         ctx: &RaftContext,
-        cmds: &Vec<Vec<u8>>,
+        command: Vec<u8>,
         listeners: Arc<Listeners>,
-    ) {
+    ) -> RaftResult<()> {
         if listeners.is_empty() {
             warn!(
-                "not `AdminListener` set but still remained {:?} cmds should be apply",
-                cmds.len()
+                "not `AdminListener` set but still remained command should be apply"
             );
         }
         for listener in listeners.iter() {
@@ -94,11 +93,12 @@ impl RaftCoprocessor for SimpleCoprocessor {
                     if !listener.should_execute(ctx).await {
                         continue;
                     }
-                    admin.handle_cmds(ctx, cmds).await;
+                    admin.handle_command(ctx, &command).await?;
                 }
                 _ => (),
             }
         }
+        Ok(())
     }
 
     #[inline]

@@ -83,9 +83,6 @@ impl<S: GroupStorage + Clone> Transaction<S> {
                     }
                     Moditication::MergeTo(merged_group) => {
                         if let Some((_, peer)) = peers.remove(&group) {
-                            // TODO list: 
-                            // 1. notify to business
-                            // 2. handle unapply entries of these peers.
                             let noti = Notification::ChangeGroup { to: merged_group };
                             notification.push((group, noti));
                             peer.clear().await;

@@ -9,7 +9,8 @@ use crate::{raft_payload_proto::{Message as RaftMessage, StatusProto}};
 impl Display for RaftMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut entries_log = String::new();
-        if !self.entries.is_empty() && self.entries.len() < 10 {
+        let entries_num = self.entries.len();
+        if entries_num > 0 && entries_num <= 5 {
             entries_log.push_str(" with entries: ");
             for e in self.entries.iter() {
                 let e_index = e.index;
@@ -21,13 +22,17 @@ impl Display for RaftMessage {
                 );
                 entries_log.push_str(line.as_str());
             }
+        } else if entries_num > 0 {
+            let s = self.entries.first().map(|e| (e.term, e.index)).unwrap();
+            let e = self.entries.last().map(|e| (e.term, e.index)).unwrap();
+            entries_log = format!(" with {} entries from {:?} to {:?}", entries_num, s, e);
         }
         let rej = self.reject;
         let rej_hint = self.reject_hint;
         write!(f, 
-            "{:?} from ({:?}) to ({:?}) [index: {:?}, term: {:?}, log_term: {:?}, commit: {:?}, commit_term: {:?}, reject: {:?} reject_hint: {:?}]{}", 
+            "{:?} from ({:?}) to ({:?}) [index: {:?}, term: {:?}, log_term: {:?}, commit: {:?}, commit_term: {:?}, request_snap: {:?}, reject: {:?} reject_hint: {:?}]{}", 
             self.msg_type(), self.from, self.to, self.index, self.term, self.log_term, self.commit, 
-            self.commit_term, rej, rej_hint, entries_log
+            self.commit_term, self.request_snapshot, rej, rej_hint, entries_log
         )
     }
 }
