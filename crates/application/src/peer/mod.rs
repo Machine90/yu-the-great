@@ -156,11 +156,15 @@ impl Core {
     }
 
     pub(crate) async fn clear(&self) {
+        // step 1: remove group from topology
         if let Some(topo) = self.mailbox.topo() {
             topo.remove_group(&self.group_id);
         }
-        // TODO: how about entries: [applied, committed] if there has 
-        // some probe, or even snapshot follower.
+
+        // step 2: clear group from coprocessor
+        self.coprocessor_driver().on_remove_group(self.group_id);
+
+        // step 3: compact raft log to applied.
         self.compact_raft_log(false).await;
     }
 

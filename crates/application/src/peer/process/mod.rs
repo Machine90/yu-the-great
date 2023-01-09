@@ -435,7 +435,7 @@ impl Core {
         }
         
         // panic if not has complete and should not ignore failure
-        if !has_complete && !self.conf().ignore_apply_failure {
+        if !has_complete && !self.conf().apply_ignore_failure {
             crate::error!("apply log entry failure, decide to abort");
             // TODO: shutdown more graceful.
             panic!("apply log entry failure");

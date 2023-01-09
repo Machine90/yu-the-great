@@ -4,6 +4,7 @@ use crate::tokio::{time::timeout, task::JoinHandle};
 use crate::{torrent::runtime, PeerID, RaftMsg, RaftResult};
 use common::protocol::{GroupID, NodeID};
 use common::protos::raft_log_proto::{Snapshot};
+use common::vendor::prelude::{DashMap};
 use components::mailbox::{PostOffice, RaftEndpoint, topo::Topo, api::GroupMailBox};
 use components::monitor::{Monitor};
 use components::utils::endpoint_change::{ChangeSet, Changed};
@@ -12,6 +13,7 @@ use consensus::raft_node::SnapshotStatus;
 use std::collections::HashSet;
 use std::io::{Result};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering, AtomicU32};
 use std::time::Duration;
 
 use super::read_index_ctx::ReadContext;
@@ -30,9 +32,96 @@ pub enum ApplySnapshot {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AfterApplied {
+    /// Should not flush last_applied
     Skip = 0,
     Persist = 1,
     Compact = 2
+}
+
+#[derive(Default)]
+pub(crate) struct AppliedTracker {
+    progress: DashMap<GroupID, AppliedProgress>,
+}
+
+impl AppliedTracker {
+
+    fn try_update(&self, group: GroupID, applied: u64, conf: &NodeConfig, monitor: Option<&Monitor>) -> AfterApplied {
+        self.progress
+            .entry(group)
+            .or_insert(AppliedProgress::default())
+            .downgrade()
+            .try_update(applied, conf, monitor)
+    }
+
+    #[inline]
+    fn remove_group(&self, group: GroupID) {
+        let _ = self.progress.remove(&group);
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct AppliedProgress {
+    last_applied: AtomicU64,
+    applied_persistence_cnt: AtomicU32,
+}
+
+impl AppliedProgress {
+
+    /// Try to update `last_applied` index to given `applied` if difference more than 
+    /// `apply_persistence_index_frequency`, and return a suggestion, the suggestion 
+    /// is used to help to persistence raft applied index, or clear raft logs.
+    fn try_update(&self, applied: u64, conf: &NodeConfig, monitor: Option<&Monitor>) -> AfterApplied {
+        let origin_applied = self.last_applied.load(Ordering::Relaxed);
+        let mut suggestion = AfterApplied::Skip;
+        if let Some(_monitor) = monitor {
+            // TODO: do some protection
+        }
+        
+        if applied <= origin_applied {
+            return AfterApplied::Skip;
+        }
+        let diff = applied - origin_applied;
+        
+        if diff >= conf.apply_persistence_index_frequency {
+            // upgrade level
+            suggestion = AfterApplied::Persist;
+        }
+        match suggestion {
+            AfterApplied::Skip => (),
+            AfterApplied::Persist => {
+                if let Err(_) = self.last_applied.compare_exchange(
+                    origin_applied, 
+                    applied, 
+                    Ordering::Acquire, 
+                    Ordering::Relaxed
+                ) {
+                    // means othe thread update applied already, just skip this update.
+                    suggestion = AfterApplied::Skip;
+                } else {
+                    let mut should_clear = false;
+                    let _ = self.applied_persistence_cnt.fetch_update(
+                        Ordering::SeqCst, 
+                        Ordering::SeqCst, 
+                        |cnt| {
+                            let next = cnt + 1;
+                            if next >= conf.apply_clear_logs_frequency {
+                                should_clear = true;
+                                Some(0)
+                            } else {
+                                Some(next)
+                            }
+                        }
+                    );
+                    if should_clear {
+                        // upgrade to compact raft logs.
+                        suggestion = AfterApplied::Compact;
+                    }
+                }
+            },
+            _ => unreachable!()
+        };
+        suggestion
+    }
 }
 
 /// Coprocessor is the core component of application (both multi-raft and single)
@@ -45,6 +134,7 @@ pub struct CoprocessorDriver {
     pub(super) post_office: Arc<dyn PostOffice>,
     pub(crate) monitor: Option<Monitor>,
     pub(crate) endpoint: RaftEndpoint,
+    pub(crate) applied_tracker: AppliedTracker,
     pub(super) conf: NodeConfig
 }
 
@@ -109,6 +199,11 @@ impl CoprocessorDriver {
     #[inline]
     pub fn add_listener(&self, listener: Listener) {
         self.listeners.add(listener);
+    }
+
+    #[inline]
+    pub fn on_remove_group(&self, group: GroupID) {
+        self.applied_tracker.remove_group(group);
     }
 
     ///////////////////////////////////////////////////////////////
@@ -213,10 +308,15 @@ impl CoprocessorDriver {
         ctx: &RaftContext,
     ) -> AfterApplied {
         let RaftContext { 
+            applied,
+            group_id,
             ..
         } = ctx;
-        // TODO: handle with latest applied index
-        AfterApplied::Skip
+        let group = *group_id;
+        let applied = *applied;
+        let conf = &self.conf;
+        let monitor = self.monitor();
+        self.applied_tracker.try_update(group, applied, conf, monitor)
     }
 
     /// When leader receive raw read_index ctx directly or from
@@ -361,6 +461,61 @@ impl CoprocessorDriver {
                 );
                 ApplySnapshot::Applied(SnapshotStatus::Failure)
             }
+        }
+    }
+}
+
+#[cfg(test)] mod tests {
+    use std::sync::Arc;
+    use crate::peer::config::NodeConfig;
+    use super::AppliedTracker;
+
+    #[test] fn multi_applier() {
+        let applier = Arc::new(AppliedTracker::default());
+        let mut ts = vec![];
+        
+        const PERSIST_FREQ: u64 = 10;
+        const COMPACT_FREQ: u32 = 5;
+        const APPLIED_TO: u64 = 1000;
+
+        for i in 0..20 {
+            let id = i % 7;
+            let appl = applier.clone();
+            
+            ts.push(std::thread::spawn(move || {
+                let conf = NodeConfig { 
+                    apply_persistence_index_frequency: PERSIST_FREQ,
+                    apply_clear_logs_frequency: COMPACT_FREQ, 
+                    ..Default::default() 
+                };
+                let mut compact = 0;
+                let mut persistent_applied = 0;
+                for applied in 1..=APPLIED_TO {
+                    match appl.try_update(id, applied, &conf, None) {
+                        super::AfterApplied::Compact => {
+                            persistent_applied += 1;
+                            compact += 1;
+                        },
+                        super::AfterApplied::Persist => {
+                            persistent_applied += 1;
+                        }
+                        _ => ()
+                    }
+                }
+                (id, persistent_applied, compact)
+            }));
+        }
+
+        let mut records = vec![(0, 0); 7];
+        for t in ts {
+            if let Ok((id, persist, compact)) = t.join() {
+                records[id as usize].0 += persist;
+                records[id as usize].1 += compact;
+            }
+        }
+        for (persist, compact) in records {
+            assert_eq!(persist, APPLIED_TO / PERSIST_FREQ);
+            assert_eq!(compact, APPLIED_TO / (PERSIST_FREQ * COMPACT_FREQ as u64))
         }
     }
 }

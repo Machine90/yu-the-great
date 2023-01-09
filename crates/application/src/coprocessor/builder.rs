@@ -5,7 +5,7 @@ use components::monitor::{Monitor, MonitorConf};
 use std::io::{Error, ErrorKind, Result};
 use std::sync::Arc;
 
-use super::driver::CoprocessorDriver;
+use super::driver::{CoprocessorDriver, AppliedTracker};
 use super::{
     executor::{Coprocessor, Executor},
     listener::{Listener, Listeners},
@@ -116,6 +116,7 @@ impl Builder {
             post_office,
             topo,
             endpoint,
+            applied_tracker: AppliedTracker::default(),
             conf,
         })
     }

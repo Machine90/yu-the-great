@@ -24,10 +24,17 @@ pub struct NodeConfig {
     pub wait_backup_tranfer_ms: u64,
     /// Default to `true`, in theory, Raft algorithm would not to handle if 
     /// applying LogEntry failed, for exmaple disk unavailable suddenly. 
-    /// But if disable this option, the failure will be catched and persist 
+    /// But if disable this option, the failure will be catched and persistence 
     /// last applied index, then shutdown node, the entries since applied + 1
     /// will be continue to apply after restart.
-    pub ignore_apply_failure: bool,
+    pub apply_ignore_failure: bool,
+    /// Default to 100, means persistence `last_applied` index each 100 increments.
+    pub apply_persistence_index_frequency: u64,
+    /// Default to 100, every persistence `last_applied` increase 1 count, when count 
+    /// reached `apply_compact_logs_frequency`, then trigger to clear raft logs. 
+    /// For example `apply_persist_index_frequency` is 100, the raft log will clear each
+    /// 10000 applied entries.
+    pub apply_clear_logs_frequency: u32,
     /// consensus algorithm related-config, not changeable.
     pub consensus_config: RaftConfig,
 }
@@ -43,7 +50,9 @@ impl Default for NodeConfig {
             preheat_groups_retries: 5,
             preheat_allow_failure: true,
             wait_backup_tranfer_ms: 1000,
-            ignore_apply_failure: true,
+            apply_ignore_failure: true,
+            apply_persistence_index_frequency: 100,
+            apply_clear_logs_frequency: 100,
             consensus_config: Default::default() 
         }
     }
