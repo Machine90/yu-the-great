@@ -32,49 +32,38 @@ yu-the-great = { git = "https://github.com/Machine90/yu-the-great.git", default-
 use std::{io::Result};
 use yu_the_great as yu;
 use yu::{
-    common::protocol::{read_state::ReadState, NodeID},
+    common::protocol::{read_state::ReadState,},
     coprocessor::listener::{proposal::RaftListener, Acl, RaftContext},
     peer::{config::NodeConfig, facade::Facade},
-    protos::{raft_group_proto::GroupProto, raft_log_proto::Entry},
+    protos::{raft_group_proto::GroupProto},
     solutions::builder::single::{provider, Builder},
     solutions::rpc::StubConfig,
     torrent::{topology::node::Node},
-    RaftRole,
+    RaftRole
 };
 
 /// 第一步: 定义一个 struct 用于打印 "hello" 等信息
-struct HelloWorld(NodeID);
-impl HelloWorld {
-    
-    /// propose 发送到集群的 raft log 里的操作日志需提取出来解码为字符串
-    fn sayhello(&self, ent: &Entry) -> i64 {
-        let log = ent.data.clone();
-        if let Ok(name) = String::from_utf8(log) {
-            println!("[Node {}] Hello {}", self.0, name);
-        }
-        ent.data.len() as i64
-    }
-}
-
+struct HelloWorld;
 /// 默认开启访问的 (如果需要对某些组或者别的维度的数据进行限制，可以实现其方法)
 impl Acl for HelloWorld {}
-
 /// 第二步: 给 HelloWorld 实现一个 `RaftListener` 用以接收集群的读、写请求及其他事件
 #[yu::async_trait]
 impl RaftListener for HelloWorld {
     
-    /// propose 至集群的数据将被此接口接收，leader 和 follower 均可接收读写请求，follower 将
-  	/// 转发至 leader.
-    async fn handle_write(&self, _: &RaftContext, entries: &[Entry]) -> Result<i64> {
-        let mut total = 0;
-        for ent in entries.iter() {
-            total += self.sayhello(ent);
-        }
-        Ok(total)
+    /// propose 发送至集群，由 Leader 处理，edit_log 会被作为 RaftEntry Append 至 RaftLog, 
+    /// 一旦 leader 状态机 applied 至当前 commit, 此接口回调将被触发，具体业务逻辑交由使用者进行
+    /// 实现，Raft 本身只关心集群 CAP.
+    async fn handle_write(&self, ctx: &RaftContext, edit_log: &[u8]) -> Result<i64> {
+        let RaftContext { node_id, .. } = ctx;
+        println!("hello {:?} this is Node-{}", String::from_utf8(edit_log.to_vec()), node_id);
+        Ok(edit_log.len() as i64)
     }
 
+    /// yu 支持 quorum read 一致性读, 其实现同 etcd-raft, 即论文中提及的 ReadOnly 实现，读请求由
+    /// Leader 处理，读请求处理时，具体读的逻辑调用此接口，读请求上下文将传递至 `ReadState` 之中。读请求
+    /// 默认使用 SafeRead, 即读处理前 Leader 触发心跳确认是否仍为 Leader
     async fn handle_read(&self, _: &RaftContext, _: &mut ReadState) {
-        // 可以不处理读, 默认原样返回, 或者将读结果设置进 read_state 中
+        // ignore this.
     }
 }
 
@@ -119,9 +108,10 @@ fn main() {
             break;
         }
     }
-    // 最后对每个节点我们分别发送一条“提议” (propose)
+    // 最后对每个节点我们分别发送一条“提议” (propose), propose 会在指定超时时间内等待本次提议“写”成功
+    // 若超时则会返回 Pending，但这并不意味着写失败，只是当前集群在超时时间内尚未收到大多数节点相应 Append
     for (i, name) in ["Alice", "Bob", "Charlie"].iter().enumerate() {
-        let proposal = peers[i].propose(name);
+        let proposal = peers[i].propose_bin(name);
         assert!(proposal.is_ok());
     }
 }
