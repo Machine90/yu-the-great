@@ -1,6 +1,6 @@
 <img src="./document/imgs/logo.png" width="300"/>
 
-## [Architecture](document/design.md) | [Examples](https://github.com/Machine90/yu-examples) | [中文说明](document/cn.md) | [Configuration](document/configuration.md) | [Multi Raft](document/multi_raft.md) 
+## [Design](document/design.md) | [Examples](https://github.com/Machine90/yu-examples) | [中文说明](document/cn.md) | [Configuration](document/configuration.md) | [Multi Raft](document/multi_raft.md) 
 
 **Yu The Great** is an open-source distributed consensus library which implemented in Rust language based on the raft algorithm, can help developers to write some distributed products easily, for example distributed key-value store, distributed message queue and some tools like distributed lock that can be embed in your project.
 

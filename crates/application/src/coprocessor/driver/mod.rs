@@ -290,7 +290,7 @@ impl CoprocessorDriver {
         Ok(())
     }
 
-    /// Apply entry with [EntryType]() on this node.
+    /// Apply entry with [EntryCmd](crate::protos::raft_log_proto::EntryType::EntryCmd) on this node.
     pub async fn apply_command(
         &self,
         ctx: &RaftContext,

@@ -420,12 +420,29 @@ impl Core {
             }
             if suggestion == AfterApplied::Compact {
                 // do compact raft log
-                self._compact_raft_log(update, true).await;
+                let low_water_level = Self::_should_compact_to(raft, update);
+                if low_water_level > 0 {
+                    self._compact_raft_log(low_water_level, true).await;
+                }
             }
             Some(ctx)
         } else {
             None
         }
+    }
+
+    fn _should_compact_to(raft: &mut WLockRaft<'_>, applied: u64) -> u64 {
+        let Status { soft_state, tracker, .. } = raft.status();
+        let mut low_water_level = applied;
+        if soft_state.raft_state == RaftRole::Leader && tracker.is_some() {
+            // from leader perspective: find minimal next_index from all voters, 
+            // entries before this index should be remove. 
+            for (_, prg) in tracker.unwrap().iter() {
+                low_water_level = low_water_level.min(prg.next_index);
+            }
+        }
+        // followers don't have global view of raft group, so just use it's `applied` index
+        low_water_level
     }
 
     fn _persist_last_applied(&self, index: u64, has_complete: bool) {

@@ -5,6 +5,7 @@ authors = ["Xun <machine90831@gmail.com>"]
 edition = "2021"
 
 [features]
+# on master & dev branch, default to "full", and on other release branches default to "components_basic"
 default = ["full"]
 full = ["multi", "single", "rpc_transport"]
 # feature multi is still developing

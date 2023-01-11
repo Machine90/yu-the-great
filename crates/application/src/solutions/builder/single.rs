@@ -65,6 +65,7 @@ impl<S: GroupStorage + Clone> Builder<S> {
         self
     }
 
+    /// Schedule tick with default ticker if `should_tick` is true.
     #[inline]
     pub fn tick(mut self, should_tick: bool) -> Self {
         self.tick = should_tick;
@@ -164,7 +165,14 @@ impl<S: GroupStorage + Clone> Builder<S> {
         Ok(())
     }
 
-    pub fn build(mut self) -> crate::RaftResult<Node> {
+    #[inline]
+    pub fn build(self) -> crate::RaftResult<Node> {
+        Self::build_with(self, |_, _| {})
+    }
+
+    /// Build `Node` after invoked `interceptor`, the `interceptor` 
+    /// will be invoked after created `Peer`.
+    pub fn build_with<F: Fn(Arc<Peer>, &mut Scheduler)>(mut self, interceptor: F) -> crate::RaftResult<Node> {
         // step 1: check if setup correct
         self._validate()?;
 
@@ -192,6 +200,7 @@ impl<S: GroupStorage + Clone> Builder<S> {
             // step 5: if tick it by default, spawn a tick scheduler
             let _ = scheduler.spawn_async(SingleTicker::new(peer.clone()));
         }
+        interceptor(peer.clone(), &mut scheduler);
         // final step: build Node with schedule and peer
         Ok(Node {
             core: Arc::new(Core {

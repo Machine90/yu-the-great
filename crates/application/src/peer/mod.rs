@@ -178,6 +178,7 @@ impl Core {
     }
 
     async fn _compact_raft_log(&self, to: u64, should_async: bool) {
+        crate::debug!("trigger to clear raft log to applied({to}) in {}", if should_async {"async"} else {"sync"});
         if should_async {
             let store = self.write_store.clone();
             let group_id = self.group_id;
@@ -269,6 +270,8 @@ impl Core {
     pub async fn sync_with(&self, peer_id: PeerID) {
         let follower = peer_id.1;
         if let Some(group) = self.group_info() {
+            // TODO: this just sync confstate and group info to follower, 
+            // should we provide a `install_snapshot` method as another choose
             self.mailbox.sync_with(follower, group).await;
         }
     }
@@ -279,8 +282,8 @@ impl Core {
     }
 
     #[inline]
-    pub fn coprocessor_driver(&self) -> &Arc<CoprocessorDriver> {
-        &self.coprocessor_driver
+    pub fn coprocessor_driver(&self) -> &CoprocessorDriver {
+        self.coprocessor_driver.as_ref()
     }
 
     #[inline]

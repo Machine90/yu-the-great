@@ -98,6 +98,9 @@ fn _build_node(node_id: NodeID, group: GroupProto) -> single::Node {
     // node id must be assigned
     conf.id = node_id;
     conf.enable_pre_vote_round = true;
+    conf.apply_persistence_index_frequency = 2;
+    conf.apply_clear_logs_frequency = 2;
+    
     let node = Builder::new(group.clone(), conf)
         .with_raftlog_store(|group| provider::mem_raftlog_store(group)) // save raft's log in memory
         .use_default() // default to tick it and use RPC transport.
